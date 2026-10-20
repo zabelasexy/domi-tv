@@ -101,9 +101,16 @@ export default function Importar() {
 
   const run = async () => {
     setBusy(true);
+    try { await runImport(); } catch (e) {
+      setDone({ ok: 0, eps: 0, missing: [], err: e?.message || String(e) });
+    }
+    setBusy(false);
+  };
+
+  const runImport = async () => {
     const uid = (await sb().auth.getUser()).data.user.id;
     const missing = [];
-    let ok = 0, epsTotal = 0;
+    let ok = 0, epsTotal = 0, firstErr = "";
     const queue = [...found];
     const worker = async () => {
       while (queue.length) {
@@ -126,28 +133,30 @@ export default function Importar() {
             if (f.episodes_total && eps.length >= f.episodes_total * 0.95 && ended) status = "finalizada";
             else status = stale ? "geladeira" : "assistindo";
           }
-          await sb().from("shows").upsert({
+          const up = await sb().from("shows").upsert({
             ...f, user_id: uid, status,
             favorite: !!item.favorite,
             tags: item.tags || [],
             started_at: dates[0]?.slice(0, 10) || null,
             finished_at: status === "finalizada" ? (dates[dates.length - 1]?.slice(0, 10) || today()) : null,
           }, { onConflict: "user_id,tmdb_id", ignoreDuplicates: true });
+          if (up.error) throw new Error(`Série: ${up.error.message}`);
           const rows = eps.map((x) => ({ user_id: uid, tmdb_show_id: id, season: x.season, episode: x.episode, runtime: f.runtime || 45, ...(x.watched_at ? { watched_at: x.watched_at } : {}) }));
           for (let i = 0; i < rows.length; i += 500) {
-            await sb().from("episodes_watched").upsert(rows.slice(i, i + 500), { onConflict: "user_id,tmdb_show_id,season,episode", ignoreDuplicates: true });
+            const er = await sb().from("episodes_watched").upsert(rows.slice(i, i + 500), { onConflict: "user_id,tmdb_show_id,season,episode", ignoreDuplicates: true });
+            if (er.error) throw new Error(`Episódios: ${er.error.message}`);
           }
           ok++; epsTotal += rows.length;
-          setLog((l) => [...l.slice(-6), `✓ ${d.name}${rows.length ? ` · ${rows.length} eps` : ""}`]);
-        } catch {
+          setLog((l) => [...l.slice(-6), `✓ ${ok}/${found.length} · ${d.name}${rows.length ? ` · ${rows.length} eps` : ""}`]);
+        } catch (err) {
           missing.push(item.name);
+          if (!firstErr) firstErr = err?.message || String(err);
         }
       }
     };
     await Promise.all([worker(), worker(), worker(), worker()]);
     await Promise.all([reload(), reloadEps()]);
-    setBusy(false);
-    setDone({ ok, eps: epsTotal, missing });
+    setDone({ ok, eps: epsTotal, missing, err: firstErr });
   };
 
   return (
@@ -174,7 +183,8 @@ export default function Importar() {
 
       {done && (
         <div className="import-box">
-          <p className="hand-ok">{done.ok} séries e {done.eps} episódios no canal 🎉</p>
+          <p className="hand-ok">{done.ok} séries e {done.eps} episódios no canal{done.ok ? " 🎉" : ""}</p>
+          {done.err && <p className="err">Erro: {done.err}</p>}
           {done.missing.length > 0 && (
             <>
               <p className="muted">Essas eu não achei sozinha. Procure pelo nome na busca:</p>
