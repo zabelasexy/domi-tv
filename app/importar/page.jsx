@@ -5,6 +5,7 @@ import { useDomi } from "@/components/Shell";
 import { tmdb, showFields } from "@/lib/tmdb";
 import { sb } from "@/lib/supabase";
 import { today } from "@/lib/constants";
+import { analyzeTvtimeJson, isTvtimeSeries, isTvtimeLists } from "@/lib/tvtime";
 
 const pick = (cols, patterns) => cols.find((c) => patterns.some((p) => p.test(c)));
 
@@ -43,19 +44,25 @@ function analyze(tables) {
 async function readFiles(files) {
   const Papa = (await import("papaparse")).default;
   const tables = [];
+  const jsons = [];
   const parse = (name, text) => tables.push({ name, rows: Papa.parse(text, { header: true, skipEmptyLines: true }).data });
+  const parseJson = (name, text) => { try { jsons.push({ name, data: JSON.parse(text) }); } catch {} };
   for (const f of files) {
     if (/\.zip$/i.test(f.name)) {
       const JSZip = (await import("jszip")).default;
       const zip = await JSZip.loadAsync(f);
       for (const entry of Object.values(zip.files)) {
-        if (!entry.dir && /\.csv$/i.test(entry.name)) parse(entry.name, await entry.async("string"));
+        if (entry.dir) continue;
+        if (/\.csv$/i.test(entry.name)) parse(entry.name, await entry.async("string"));
+        else if (/\.json$/i.test(entry.name)) parseJson(entry.name, await entry.async("string"));
       }
     } else if (/\.csv$/i.test(f.name)) {
       parse(f.name, await f.text());
+    } else if (/\.json$/i.test(f.name)) {
+      parseJson(f.name, await f.text());
     }
   }
-  return tables;
+  return { tables, jsons };
 }
 
 export default function Importar() {
@@ -69,9 +76,11 @@ export default function Importar() {
   const onFiles = async (e) => {
     setErr(""); setFound(null); setDone(null); setLog([]);
     try {
-      const tables = await readFiles([...e.target.files]);
-      if (!tables.length) return setErr("Não achei nenhum arquivo .csv aí dentro. Envie o .zip do TV Time ou os .csv dele.");
-      const list = analyze(tables);
+      const { tables, jsons } = await readFiles([...e.target.files]);
+      const series = jsons.filter((j) => isTvtimeSeries(j.data)).flatMap((j) => j.data);
+      const lists = jsons.filter((j) => isTvtimeLists(j.data)).flatMap((j) => j.data);
+      if (!tables.length && !series.length) return setErr("Não achei as séries nesse arquivo. Envie o tvtime-series.json (e, se quiser, o tvtime-lists.json), o .zip do TV Time ou os .csv dele.");
+      const list = [...analyzeTvtimeJson(series, lists), ...analyze(tables)];
       if (!list.length) return setErr("Achei os arquivos, mas não reconheci as colunas de série. Me mande o arquivo que eu ajusto o importador.");
       setFound(list);
     } catch {
@@ -107,15 +116,20 @@ export default function Importar() {
           const eps = [...item.episodes.values()];
           const dates = eps.map((x) => x.watched_at).filter(Boolean).sort();
           const ended = d.status === "Ended" || d.status === "Canceled";
+          const lastSeen = dates[dates.length - 1];
+          const stale = lastSeen && Date.now() - Date.parse(lastSeen) > 1000 * 60 * 60 * 24 * 180;
           let status = "quero";
-          if (eps.length) {
-            const lastSeen = dates[dates.length - 1];
-            const stale = lastSeen && Date.now() - Date.parse(lastSeen) > 1000 * 60 * 60 * 24 * 180;
+          if (item.hint === "em_dia") status = ended ? "finalizada" : stale ? "geladeira" : "assistindo";
+          else if (item.hint === "assistindo") status = stale ? "geladeira" : "assistindo";
+          else if (item.hint === "abandonada" || item.hint === "quero") status = item.hint;
+          else if (eps.length) {
             if (f.episodes_total && eps.length >= f.episodes_total * 0.95 && ended) status = "finalizada";
             else status = stale ? "geladeira" : "assistindo";
           }
           await sb().from("shows").upsert({
             ...f, user_id: uid, status,
+            favorite: !!item.favorite,
+            tags: item.tags || [],
             started_at: dates[0]?.slice(0, 10) || null,
             finished_at: status === "finalizada" ? (dates[dates.length - 1]?.slice(0, 10) || today()) : null,
           }, { onConflict: "user_id,tmdb_id", ignoreDuplicates: true });
@@ -139,11 +153,11 @@ export default function Importar() {
   return (
     <section className="import">
       <h1 className="h-display">Importar do TV Time</h1>
-      <p className="muted">Envie o arquivo que o TV Time gerou no export (o .zip inteiro ou os .csv). Cada série é procurada no catálogo e entra com os episódios e as datas que você já tinha marcado. Pode importar de novo sem medo: nada fica duplicado.</p>
+      <p className="muted">Envie os arquivos que o TV Time gerou no export: o <b>tvtime-series.json</b> e, se quiser levar as listas como tags, o <b>tvtime-lists.json</b> (pode escolher os dois juntos). O .zip ou os .csv também funcionam. Cada série é procurada no catálogo e entra com os episódios e as datas que você já tinha marcado. Pode importar de novo sem medo: nada fica duplicado.</p>
 
       {!done && (
         <label className="drop">
-          <input type="file" accept=".zip,.csv" multiple onChange={onFiles} disabled={busy} />
+          <input type="file" accept=".zip,.csv,.json" multiple onChange={onFiles} disabled={busy} />
           <span>{found ? "Trocar arquivo" : "Escolher arquivo do TV Time"}</span>
         </label>
       )}

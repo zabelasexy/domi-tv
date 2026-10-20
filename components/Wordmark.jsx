@@ -6,7 +6,7 @@ export default function Wordmark({ className = "", animated = false, size, badge
       <span className="wm-o" aria-hidden="true" />
       <span className="wm-ch" aria-hidden="true">m</span>
       <span className="wm-ch" aria-hidden="true">i</span>
-      {badge && <small className="wm-tv" aria-hidden="true">tv</small>}
+      {badge && <small className="wm-tv" aria-hidden="true">TV</small>}
     </span>
   );
 }

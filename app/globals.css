@@ -314,17 +314,17 @@ textarea.input { resize: vertical; }
 .hand-ok { font-weight: 700; font-size: 1.2rem; }
 
 /* logo */
-.wm { display: inline-flex; align-items: center; font-weight: 800; letter-spacing: -.06em; line-height: .9; white-space: nowrap; color: #fff; }
-.wm-o { position: relative; display: inline-grid; place-items: center; width: .62em; height: .62em; margin: 0 .03em; border-radius: .2em; top: .07em;
-  background: #3F7BFF; box-shadow: 0 0 0 .04em rgba(255, 255, 255, .12) inset, 0 .1em .5em rgba(63, 123, 255, .55); }
-.wm-o::after { content: ""; width: 0; height: 0; margin-left: .05em; border-left: .2em solid #fff; border-top: .13em solid transparent; border-bottom: .13em solid transparent; }
-.wm-tv { align-self: flex-start; margin: .15em 0 0 .18em; font: 400 .3em var(--mono); letter-spacing: .05em; color: var(--stamp); text-shadow: 0 0 8px rgba(255, 154, 60, .6); }
+.wm { display: inline-flex; align-items: center; font-weight: 700; letter-spacing: -.055em; line-height: .9; white-space: nowrap; color: #fff; }
+.wm-o { position: relative; display: inline-grid; place-items: center; width: .64em; height: .64em; margin: 0 -.02em 0 .05em; border-radius: 50%; top: .06em;
+  background: radial-gradient(circle at 35% 30%, #7FA8FF, #2357C6 70%); box-shadow: 0 .08em .4em rgba(63, 123, 255, .55); }
+.wm-o::after { content: ""; width: 0; height: 0; margin-left: .05em; border-left: .18em solid #fff; border-top: .115em solid transparent; border-bottom: .115em solid transparent; }
+.wm-tv { align-self: flex-start; margin: .1em 0 0 .12em; font-size: .2em; font-weight: 600; letter-spacing: .2em; color: var(--azul-claro); }
 .wm-anim .wm-ch { display: inline-block; opacity: 0; transform: translateY(.25em); animation: rise .7s cubic-bezier(.2, .9, .3, 1.2) forwards; }
 .wm-anim .wm-ch:nth-child(1) { animation-delay: 1.9s; } .wm-anim .wm-ch:nth-child(3) { animation-delay: 2.1s; } .wm-anim .wm-ch:nth-child(4) { animation-delay: 2.18s; }
 .wm-anim .wm-o { transform: scale(0) rotate(-20deg); animation: opop .7s cubic-bezier(.3, 1.7, .5, 1) 2.4s forwards, onair 1.6s ease-in-out 3.2s infinite; }
 .wm-anim .wm-tv { opacity: 0; animation: fade .3s steps(2) 2.9s forwards; }
 @keyframes opop { to { transform: none; } }
-@keyframes onair { 50% { box-shadow: 0 0 0 .04em rgba(255, 255, 255, .12) inset, 0 .1em .9em rgba(63, 123, 255, .95); } }
+@keyframes onair { 50% { box-shadow: 0 .08em .9em rgba(63, 123, 255, .95); } }
 
 /* abertura e login */
 .boot { min-height: 100dvh; display: grid; place-items: center; }
