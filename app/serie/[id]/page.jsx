@@ -7,6 +7,7 @@ import { tmdb, img, showFields } from "@/lib/tmdb";
 import { sb } from "@/lib/supabase";
 import { STATUS, today } from "@/lib/constants";
 import { usePosterColor, accentVars } from "@/lib/color";
+import Soundtrack from "@/components/Soundtrack";
 
 const SHOW_STATUS = { "Returning Series": "Em exibição", Ended: "Encerrada", Canceled: "Cancelada", "In Production": "Em produção" };
 
@@ -225,6 +226,8 @@ export default function Serie() {
               <div>{providers.map((p) => <img key={p.provider_id} src={img(p.logo_path, "w92")} alt={p.provider_name} title={p.provider_name} />)}</div>
             </div>
           )}
+
+          <Soundtrack title={d.name} originalTitle={d.original_name} />
 
           <section className="seasons" aria-label="Temporadas">
             <div className="seasons-head">

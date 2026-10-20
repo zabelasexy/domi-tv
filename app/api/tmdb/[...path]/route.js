@@ -11,7 +11,7 @@ const ALLOWED = [
   /^find\/\d+$/,
   /^discover\/tv$/,
 ];
-const ALLOWED_PARAMS = new Set(["query", "page", "language", "append_to_response", "external_source", "include_adult", "sort_by", "with_genres"]);
+const ALLOWED_PARAMS = new Set(["query", "page", "language", "append_to_response", "include_image_language", "external_source", "include_adult", "sort_by", "with_genres"]);
 
 export async function GET(req, { params }) {
   const path = (params.path || []).join("/");

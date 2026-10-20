@@ -9,6 +9,7 @@ const csp = [
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://image.tmdb.org",
   `connect-src 'self' ${supabaseUrl} ${supabaseWs}`,
+  "frame-src https://open.spotify.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

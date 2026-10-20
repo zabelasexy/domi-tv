@@ -66,6 +66,14 @@ export default function Shell({ children }) {
   const [swipes, setSwipes] = useState([]);
   const [profile, setProfile] = useState({});
   const [unlocked, setUnlocked] = useState(null);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const on = () => setScrolled(window.scrollY > 40);
+    on();
+    window.addEventListener("scroll", on, { passive: true });
+    return () => window.removeEventListener("scroll", on);
+  }, []);
   const path = usePathname();
 
   useEffect(() => {
@@ -182,7 +190,7 @@ export default function Shell({ children }) {
 
   return (
     <Ctx.Provider value={value}>
-      <header className="topbar">
+      <header className={`topbar ${path === "/" ? "over" : ""} ${scrolled ? "solid" : ""}`}>
         <Link href="/" className="brand" aria-label="Domi TV, início">
           <Wordmark className="brand-wm" />
         </Link>

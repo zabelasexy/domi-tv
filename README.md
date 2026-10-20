@@ -50,6 +50,15 @@ O app abre em tela cheia, com o ícone do play azul.
 2. Abra `supabase/casal.sql`, troque os dois e-mails do final pelos e-mails das duas contas e rode no **SQL Editor**.
 3. Pronto: quando as duas derem ♥ na mesma série no **Match**, aparece o "Deu match!" e a série entra em **Pra ver juntas**.
 
+## 6. Trilha sonora com player do Spotify (opcional)
+
+Sem configurar nada, cada série já tem o botão **Ouvir a trilha no Spotify**. Para o player aparecer dentro do app:
+
+1. Entre em **developer.spotify.com** com sua conta do Spotify → **Dashboard → Create app**.
+2. Nome `Domi TV`, descrição qualquer, **Redirect URI** `https://domi-tv-i11j.vercel.app` e marque **Web API**. Salve.
+3. Em **Settings**, copie o **Client ID** e o **Client secret**.
+4. Na Vercel: **Settings → Environment Variables**, adicione `SPOTIFY_CLIENT_ID` e `SPOTIFY_CLIENT_SECRET` e depois **Deployments → ⋯ → Redeploy**.
+
 ---
 
 ## Segurança
