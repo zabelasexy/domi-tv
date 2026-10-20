@@ -1,0 +1,15 @@
+{
+  "name": "Domi TV",
+  "short_name": "Domi TV",
+  "description": "O canal de séries da Domi.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#08102B",
+  "theme_color": "#08102B",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
