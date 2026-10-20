@@ -6,7 +6,8 @@ import { sb } from "@/lib/supabase";
 import { img, prefetchShow } from "@/lib/tmdb";
 import Intro from "./Intro";
 import Wordmark from "./Wordmark";
-import { computePatches, ICONS, FILLED } from "@/lib/patches";
+import { computePatches } from "@/lib/patches";
+import PatchArt from "./PatchArt";
 
 const Ctx = createContext(null);
 export const useDomi = () => useContext(Ctx);
@@ -19,41 +20,13 @@ const NAV = [
   { href: "/perfil", label: "Perfil", icon: "M12 5a4 4 0 1 1 0 8a4 4 0 0 1 0-8z M4 20c1.5-4 5-5 8-5s6.5 1 8 5" },
 ];
 
-export function PatchBadge({ p, size = 64, locked = false }) {
+const tiltOf = (id) => { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0; return (Math.abs(h) % 15) - 7; };
+
+export function PatchBadge({ p, size = 64, locked = false, tilt = false }) {
   return (
-    <span className={`patch ${locked ? "locked" : ""}`} style={{ width: size, height: size, background: locked ? undefined : p.color }}>
-      {locked && p.secret ? <b>?</b> : (
-        <svg viewBox="0 0 24 24" aria-hidden="true" className={FILLED.has(p.icon) ? "" : "line"} style={{ width: size * 0.42, height: size * 0.42 }}><path d={ICONS[p.icon]} /></svg>
-      )}
+    <span className="patch2" style={tilt ? { "--tilt": `${tiltOf(p.id)}deg` } : undefined}>
+      <PatchArt p={p} size={size} locked={locked} />
     </span>
-  );
-}
-
-function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-
-  const enter = async (e) => {
-    e.preventDefault();
-    setBusy(true); setMsg("");
-    const { error } = await sb().auth.signInWithPassword({ email: email.trim(), password });
-    setBusy(false);
-    if (error) setMsg("E-mail ou senha não conferem. Tente de novo.");
-  };
-
-  return (
-    <Intro>
-      <form className="login" onSubmit={enter}>
-        <label htmlFor="login-email" className="sr">E-mail</label>
-        <input id="login-email" type="email" required placeholder="seu e-mail" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
-        <label htmlFor="login-pass" className="sr">Senha</label>
-        <input id="login-pass" type="password" required placeholder="senha" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
-        <button className="btn btn-primary" disabled={busy} type="submit">{busy ? "Entrando…" : "Entrar"}</button>
-        {msg && <p className="login-msg">{msg}</p>}
-      </form>
-    </Intro>
   );
 }
 
@@ -285,7 +258,7 @@ export default function Shell({ children }) {
           <div className="unlock-card">
             <p className="eyebrow">{unlocked.length > 1 ? `${unlocked.length} patches novos!` : "patch novo!"}</p>
             <div className="unlock-row">
-              {unlocked.slice(0, 5).map((p) => <PatchBadge key={p.id} p={p} size={unlocked.length > 1 ? 64 : 120} />)}
+              {unlocked.slice(0, 5).map((p) => <PatchBadge key={p.id} p={p} tilt size={unlocked.length > 1 ? 76 : 150} />)}
             </div>
             {unlocked.length === 1 ? (<><h2>{unlocked[0].name}</h2><p>{unlocked[0].desc}</p></>) : <h2>Costuradas no seu perfil</h2>}
             <div className="row-btns center">

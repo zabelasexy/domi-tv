@@ -217,7 +217,7 @@ export default function Perfil() {
       <section className="pf-sec">
         <div className="pf-sec-head"><h2>Patches</h2><Link href="/patches" className="see-all">{done.length} de {(patches || []).length} →</Link></div>
         <div className="pf-patches">
-          {done.length ? done.slice(-6).reverse().map((p) => <PatchBadge key={p.id} p={p} size={62} />) : <p className="muted">Os patches aparecem aqui conforme você assiste.</p>}
+          {done.length ? done.slice(-6).reverse().map((p) => <PatchBadge key={p.id} p={p} size={70} tilt />) : <p className="muted">Os patches aparecem aqui conforme você assiste.</p>}
         </div>
       </section>
 
