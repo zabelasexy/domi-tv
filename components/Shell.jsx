@@ -30,6 +30,34 @@ export function PatchBadge({ p, size = 64, locked = false, tilt = false }) {
   );
 }
 
+function Login() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const enter = async (e) => {
+    e.preventDefault();
+    setBusy(true); setMsg("");
+    const { error } = await sb().auth.signInWithPassword({ email: email.trim(), password });
+    setBusy(false);
+    if (error) setMsg("E-mail ou senha não conferem. Tente de novo.");
+  };
+
+  return (
+    <Intro>
+      <form className="login" onSubmit={enter}>
+        <label htmlFor="login-email" className="sr">E-mail</label>
+        <input id="login-email" type="email" required placeholder="seu e-mail" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+        <label htmlFor="login-pass" className="sr">Senha</label>
+        <input id="login-pass" type="password" required placeholder="senha" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+        <button className="btn btn-primary" disabled={busy} type="submit">{busy ? "Entrando…" : "Entrar"}</button>
+        {msg && <p className="login-msg">{msg}</p>}
+      </form>
+    </Intro>
+  );
+}
+
 /** Foto de perfil, ou a inicial na cor escolhida. */
 export function Avatar({ profile = {}, className = "", fallback = "D", style }) {
   const letter = (profile.name || fallback).trim().charAt(0).toUpperCase();

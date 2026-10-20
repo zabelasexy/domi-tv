@@ -60,7 +60,7 @@ create policy "dono" on public.shows            for all using (user_id = auth.ui
 create policy "dono" on public.episodes_watched for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "dono" on public.swipes           for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
-create or replace function public.touch_updated_at() returns trigger language plpgsql as $$
+create or replace function public.touch_updated_at() returns trigger language plpgsql set search_path = public as $$
 begin new.updated_at = now(); return new; end $$;
 drop trigger if exists shows_touch on public.shows;
 create trigger shows_touch before update on public.shows for each row execute function public.touch_updated_at();
@@ -68,7 +68,7 @@ create trigger shows_touch before update on public.shows for each row execute fu
 -- totais rápidos para a tela inicial
 create or replace function public.my_stats()
 returns table (episodes bigint, minutes bigint)
-language sql stable security invoker as $$
+language sql stable security invoker set search_path = public as $$
   select count(*), coalesce(sum(runtime), 0)
   from public.episodes_watched where user_id = auth.uid();
 $$;
