@@ -3,9 +3,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useDomi } from "@/components/Shell";
 import { Empty, Stars } from "@/components/bits";
-import { tmdb, img } from "@/lib/tmdb";
+import { tmdb, img, SHOW_PARAMS } from "@/lib/tmdb";
 import { sb } from "@/lib/supabase";
-import { MONTHS, GENRES } from "@/lib/constants";
+import { MONTHS, GENRES, WEEKDAYS } from "@/lib/constants";
 
 const SLIDE_MS = 8000;
 
@@ -26,9 +26,66 @@ function pickLogo(images) {
   return (logos.find((l) => l.iso_639_1 === "pt") || logos.find((l) => l.iso_639_1 === "en") || logos.find((l) => !l.iso_639_1) || logos[0])?.file_path || null;
 }
 
+/** Arrastar a fileira com o mouse (no celular o dedo já arrasta), com embalo ao soltar. */
+function useDragScroll(ref) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let down = false, moved = false, startX = 0, startLeft = 0, lastX = 0, lastT = 0, v = 0, raf = 0;
+    const stopGlide = () => { cancelAnimationFrame(raf); raf = 0; };
+    const onDown = (e) => {
+      if (e.pointerType !== "mouse" || e.button !== 0) return;
+      stopGlide();
+      down = true; moved = false;
+      startX = lastX = e.clientX; startLeft = el.scrollLeft; lastT = performance.now(); v = 0;
+    };
+    const onMove = (e) => {
+      if (!down) return;
+      const dx = e.clientX - startX;
+      if (!moved && Math.abs(dx) < 6) return;
+      if (!moved) { moved = true; el.classList.add("dragging"); }
+      const now = performance.now();
+      v = (e.clientX - lastX) / Math.max(1, now - lastT);
+      lastX = e.clientX; lastT = now;
+      el.scrollLeft = startLeft - dx;
+    };
+    const onUp = () => {
+      if (!down) return;
+      down = false;
+      if (!moved) return;
+      let vel = -v * 16;
+      const glide = () => {
+        vel *= 0.94;
+        el.scrollLeft += vel;
+        if (Math.abs(vel) > 0.5) raf = requestAnimationFrame(glide);
+        else { raf = 0; el.classList.remove("dragging"); }
+      };
+      raf = requestAnimationFrame(glide);
+    };
+    // Depois de arrastar, o clique não pode abrir a série sem querer.
+    const onClick = (e) => { if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; } };
+    const noNativeDrag = (e) => e.preventDefault();
+    el.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    el.addEventListener("click", onClick, true);
+    el.addEventListener("dragstart", noNativeDrag);
+    el.addEventListener("wheel", stopGlide, { passive: true });
+    return () => {
+      stopGlide();
+      el.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      el.removeEventListener("click", onClick, true);
+      el.removeEventListener("dragstart", noNativeDrag);
+      el.removeEventListener("wheel", stopGlide);
+    };
+  }, [ref]);
+}
+
 function Row({ title, eyebrow, href, children, className = "" }) {
   const track = useRef(null);
-  const scroll = (dir) => track.current?.scrollBy({ left: dir * track.current.clientWidth * 0.8, behavior: "smooth" });
+  useDragScroll(track);
   return (
     <section className={`hrow ${className}`}>
       <div className="hrow-head">
@@ -38,13 +95,22 @@ function Row({ title, eyebrow, href, children, className = "" }) {
         </div>
         <div className="hrow-tools">
           {href && <Link href={href} className="see-all">ver tudo</Link>}
-          <button type="button" className="hrow-arrow" onClick={() => scroll(-1)} aria-label="Voltar fileira">‹</button>
-          <button type="button" className="hrow-arrow" onClick={() => scroll(1)} aria-label="Avançar fileira">›</button>
         </div>
       </div>
       <div className="hrow-track" ref={track}>{children}</div>
     </section>
   );
+}
+
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function airLabel(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  const diff = Math.round((dt - new Date(isoDay(new Date()) + "T00:00:00")) / 86400000);
+  if (diff === 0) return "hoje";
+  if (diff === 1) return "amanhã";
+  if (diff < 7) return WEEKDAYS[dt.getDay()];
+  return `${String(d).padStart(2, "0")} ${MONTHS[m - 1].slice(0, 3)}`;
 }
 
 function PosterTile({ id, title, poster, label, mine }) {
@@ -67,6 +133,7 @@ export default function Home() {
   const [paused, setPaused] = useState(false);
   const [recs, setRecs] = useState(null);
   const [trending, setTrending] = useState(null);
+  const [upcoming, setUpcoming] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const watchedBy = useMemo(() => {
@@ -129,6 +196,31 @@ export default function Home() {
   useEffect(() => {
     tmdb("trending/tv/week").then((d) => setTrending((d.results || []).filter((r) => r.poster_path).slice(0, 18))).catch(() => setTrending([]));
   }, []);
+
+  // Episódios novos chegando nas séries que ela acompanha (a página Estreias tem a semana completa).
+  useEffect(() => {
+    if (!shows) return;
+    const pool = shows.filter((s) => s.status === "assistindo" || s.status === "geladeira" || s.favorite).slice(0, 40);
+    let alive = true;
+    (async () => {
+      const found = [];
+      const queue = [...pool];
+      const todayStr = isoDay(new Date());
+      const worker = async () => {
+        while (queue.length) {
+          const s = queue.shift();
+          try {
+            const d = await tmdb(`tv/${s.tmdb_id}`, SHOW_PARAMS);
+            const n = d.next_episode_to_air;
+            if (n?.air_date && n.air_date >= todayStr) found.push({ id: s.tmdb_id, title: s.title, poster: s.poster_path, date: n.air_date, season: n.season_number, episode: n.episode_number });
+          } catch {}
+        }
+      };
+      await Promise.all(Array.from({ length: 6 }, worker));
+      if (alive) setUpcoming(found.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 18));
+    })();
+    return () => { alive = false; };
+  }, [shows?.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!shows || !eps) return <div className="skeleton-home"><div className="sk sk-hero" /><div className="sk sk-row" /><div className="sk sk-row" /></div>;
 
@@ -254,6 +346,18 @@ export default function Home() {
                 </Link>
               );
             })}
+          </Row>
+        )}
+
+        <Link href="/quiz" className="quiz-banner">
+          <span className="quiz-banner-dots" aria-hidden="true"><i /><i /><i /></span>
+          <span className="quiz-banner-txt"><span className="eyebrow">não sabe o que ver?</span><b>Faz o quiz da vibe de hoje</b></span>
+          <span className="arrow" aria-hidden="true">→</span>
+        </Link>
+
+        {upcoming && upcoming.length > 0 && (
+          <Row eyebrow="episódio novo chegando" title="Estreias" href="/estreias">
+            {upcoming.map((u) => <PosterTile key={`${u.id}-${u.date}`} id={u.id} title={u.title} poster={u.poster} label={`${airLabel(u.date)} · T${u.season}E${u.episode}`} />)}
           </Row>
         )}
 

@@ -16,7 +16,7 @@ const NAV = [
   { href: "/", label: "Início", icon: "M4 11l8-7l8 7v9h-5v-6H9v6H4z" },
   { href: "/buscar", label: "Buscar", icon: "M11 4a7 7 0 1 1 0 14a7 7 0 0 1 0-14z M20 20l-4-4" },
   { href: "/match", label: "Match", icon: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" },
-  { href: "/estreias", label: "Estreias", icon: "M4 5h16v15H4z M4 10h16 M9 3v4 M15 3v4" },
+  { href: "/quiz", label: "Quiz", icon: "M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z" },
   { href: "/perfil", label: "Perfil", icon: "M12 5a4 4 0 1 1 0 8a4 4 0 0 1 0-8z M4 20c1.5-4 5-5 8-5s6.5 1 8 5" },
 ];
 
