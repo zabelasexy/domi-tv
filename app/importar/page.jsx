@@ -2,10 +2,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useDomi } from "@/components/Shell";
-import { tmdb, showFields } from "@/lib/tmdb";
+import { tmdb, showFields, movieFields } from "@/lib/tmdb";
 import { sb } from "@/lib/supabase";
 import { today } from "@/lib/constants";
-import { analyzeTvtimeJson, isTvtimeSeries, isTvtimeLists } from "@/lib/tvtime";
+import { analyzeTvtimeJson, isTvtimeSeries, isTvtimeLists, isTvtimeMovies, analyzeTvtimeMovies } from "@/lib/tvtime";
 
 const pick = (cols, patterns) => cols.find((c) => patterns.some((p) => p.test(c)));
 
@@ -66,23 +66,27 @@ async function readFiles(files) {
 }
 
 export default function Importar() {
-  const { reload, reloadEps } = useDomi();
+  const { reload, reloadEps, reloadMovies, moviesMissing } = useDomi();
   const [found, setFound] = useState(null);
+  const [foundMovies, setFoundMovies] = useState([]);
   const [log, setLog] = useState([]);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
   const [err, setErr] = useState("");
 
   const onFiles = async (e) => {
-    setErr(""); setFound(null); setDone(null); setLog([]);
+    setErr(""); setFound(null); setFoundMovies([]); setDone(null); setLog([]);
     try {
       const { tables, jsons } = await readFiles([...e.target.files]);
       const series = jsons.filter((j) => isTvtimeSeries(j.data)).flatMap((j) => j.data);
       const lists = jsons.filter((j) => isTvtimeLists(j.data)).flatMap((j) => j.data);
-      if (!tables.length && !series.length) return setErr("Não achei as séries nesse arquivo. Envie o tvtime-series.json (e, se quiser, o tvtime-lists.json), o .zip do TV Time ou os .csv dele.");
+      const movieArr = jsons.filter((j) => isTvtimeMovies(j.data)).flatMap((j) => j.data);
+      if (!tables.length && !series.length && !movieArr.length) return setErr("Não achei séries nem filmes nesse arquivo. Envie o tvtime-series.json e o tvtime-movies.json (e, se quiser, o tvtime-lists.json), o .zip do TV Time ou os .csv dele.");
       const list = [...analyzeTvtimeJson(series, lists), ...analyze(tables)];
-      if (!list.length) return setErr("Achei os arquivos, mas não reconheci as colunas de série. Me mande o arquivo que eu ajusto o importador.");
+      const mlist = analyzeTvtimeMovies(movieArr);
+      if (!list.length && !mlist.length) return setErr("Achei os arquivos, mas não reconheci as colunas. Me mande o arquivo que eu ajusto o importador.");
       setFound(list);
+      setFoundMovies(mlist);
     } catch {
       setErr("Não consegui abrir esse arquivo.");
     }
@@ -155,8 +159,44 @@ export default function Importar() {
       }
     };
     await Promise.all([worker(), worker(), worker(), worker()]);
-    await Promise.all([reload(), reloadEps()]);
-    setDone({ ok, eps: epsTotal, missing, err: firstErr });
+
+    // Filmes
+    let okMovies = 0;
+    const mqueue = [...foundMovies];
+    const mworker = async () => {
+      while (mqueue.length) {
+        const m = mqueue.shift();
+        try {
+          let id = null;
+          if (m.imdb) {
+            try { id = (await tmdb(`find/${m.imdb}`, { external_source: "imdb_id" })).movie_results?.[0]?.id || null; } catch {}
+          }
+          if (!id) {
+            const r = await tmdb("search/movie", m.year ? { query: m.name, year: m.year } : { query: m.name });
+            id = r.results?.[0]?.id || null;
+          }
+          if (!id) { missing.push(`${m.name} (filme)`); continue; }
+          const d = await tmdb(`movie/${id}`);
+          const up = await sb().from("movies").upsert({
+            ...movieFields(d), user_id: uid,
+            status: m.watched ? "visto" : "quero",
+            favorite: m.favorite,
+            rewatch_count: m.rewatch_count,
+            watched_at: m.watched_at,
+          }, { onConflict: "user_id,tmdb_id", ignoreDuplicates: true });
+          if (up.error) throw new Error(`Filme: ${up.error.message}`);
+          okMovies++;
+          setLog((l) => [...l.slice(-6), `✓ filme ${okMovies}/${foundMovies.length} · ${d.title}`]);
+        } catch (err) {
+          missing.push(`${m.name} (filme)`);
+          if (!firstErr) firstErr = err?.message || String(err);
+        }
+      }
+    };
+    if (foundMovies.length) await Promise.all([mworker(), mworker(), mworker(), mworker()]);
+
+    await Promise.all([reload(), reloadEps(), reloadMovies()]);
+    setDone({ ok, eps: epsTotal, movies: okMovies, missing, err: firstErr });
   };
 
   return (
@@ -174,8 +214,10 @@ export default function Importar() {
 
       {found && !done && (
         <div className="import-box">
-          <p><b>{found.length}</b> séries encontradas, com <b>{found.reduce((a, s) => a + s.episodes.size, 0)}</b> episódios marcados.</p>
-          <ul className="import-peek">{found.slice(0, 8).map((s) => <li key={s.name}>{s.name}<span>{s.episodes.size} eps</span></li>)}</ul>
+          {found.length > 0 && <p><b>{found.length}</b> séries encontradas, com <b>{found.reduce((a, s) => a + s.episodes.size, 0)}</b> episódios marcados.</p>}
+          {foundMovies.length > 0 && <p><b>{foundMovies.length}</b> filmes encontrados ({foundMovies.filter((m) => m.watched).length} vistos).</p>}
+          {foundMovies.length > 0 && moviesMissing && <p className="err">Antes, rode a atualização 4 no Supabase para ligar os filmes. Senão eles não entram.</p>}
+          <ul className="import-peek">{found.slice(0, 6).map((s) => <li key={s.name}>{s.name}<span>{s.episodes.size} eps</span></li>)}{foundMovies.slice(0, 3).map((m) => <li key={`m-${m.name}`}>{m.name}<span>filme</span></li>)}</ul>
           <button className="btn btn-primary" type="button" disabled={busy} onClick={run}>{busy ? "Importando…" : "Importar tudo"}</button>
           {busy && <ul className="import-log">{log.map((l, i) => <li key={i}>{l}</li>)}</ul>}
         </div>
@@ -183,7 +225,7 @@ export default function Importar() {
 
       {done && (
         <div className="import-box">
-          <p className="hand-ok">{done.ok} séries e {done.eps} episódios no canal{done.ok ? " 🎉" : ""}</p>
+          <p className="hand-ok">{done.ok} séries, {done.eps} episódios{done.movies ? ` e ${done.movies} filmes` : ""} no canal{done.ok || done.movies ? " 🎉" : ""}</p>
           {done.err && <p className="err">Erro: {done.err}</p>}
           {done.missing.length > 0 && (
             <>

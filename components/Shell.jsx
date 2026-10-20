@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { sb } from "@/lib/supabase";
-import { img, prefetchShow } from "@/lib/tmdb";
+import { img, prefetchShow, prefetchMovie } from "@/lib/tmdb";
 import Intro from "./Intro";
 import Wordmark from "./Wordmark";
 import { computePatches } from "@/lib/patches";
@@ -98,6 +98,8 @@ export default function Shell({ children }) {
   const [eps, setEps] = useState(null);
   const [swipes, setSwipes] = useState([]);
   const [profile, setProfile] = useState({});
+  const [movies, setMovies] = useState(null);
+  const [moviesMissing, setMoviesMissing] = useState(false);
   const [unlocked, setUnlocked] = useState(null);
   const [scrolled, setScrolled] = useState(false);
 
@@ -133,6 +135,14 @@ export default function Shell({ children }) {
     setEps(all);
   }, []);
 
+  /** Filmes ficam numa tabela própria; se ela ainda não existir no banco, o app segue sem filmes. */
+  const reloadMovies = useCallback(async () => {
+    const { data, error } = await sb().from("movies").select("*").order("updated_at", { ascending: false }).range(0, 4999);
+    if (error) { setMovies([]); setMoviesMissing(true); return; }
+    setMoviesMissing(false);
+    setMovies(data || []);
+  }, []);
+
   const reloadSwipes = useCallback(async () => {
     const { data } = await sb().from("swipes").select("tmdb_id,decision,created_at").range(0, 4999);
     setSwipes(data || []);
@@ -140,9 +150,9 @@ export default function Shell({ children }) {
 
   useEffect(() => {
     if (session) {
-      reload(); reloadEps(); reloadSwipes();
+      reload(); reloadEps(); reloadSwipes(); reloadMovies();
       setProfile(session.user?.user_metadata || {});
-    } else if (session === null) { setShows(null); setEps(null); }
+    } else if (session === null) { setShows(null); setEps(null); setMovies(null); }
   }, [session?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Atualiza a lista local de episódios depois de marcar/desmarcar, sem recarregar tudo. */
@@ -213,10 +223,11 @@ export default function Shell({ children }) {
   useEffect(() => {
     const seen = new Set();
     const go = (e) => {
-      const a = e.target.closest?.('a[href^="/serie/"]');
+      const a = e.target.closest?.('a[href^="/serie/"], a[href^="/filme/"]');
       if (!a) return;
-      const id = Number(a.getAttribute("href").split("/")[2]);
-      if (id && !seen.has(id)) { seen.add(id); prefetchShow(id); }
+      const [, kind, raw] = a.getAttribute("href").split("/");
+      const id = Number(raw);
+      if (id && !seen.has(kind + id)) { seen.add(kind + id); (kind === "filme" ? prefetchMovie : prefetchShow)(id); }
     };
     document.addEventListener("pointerover", go, { passive: true });
     document.addEventListener("touchstart", go, { passive: true });
@@ -231,6 +242,33 @@ export default function Shell({ children }) {
     return true;
   }, [say]);
 
+  const moviesRef = useRef(null);
+  moviesRef.current = movies;
+  /** Igual ao saveShow, para filmes. */
+  const saveMovie = useCallback(async (fields) => {
+    const uid = uidRef.current || (await sb().auth.getUser()).data.user?.id;
+    const prev = (moviesRef.current || []).find((m) => m.tmdb_id === fields.tmdb_id);
+    const others = (list) => (list || []).filter((m) => m.tmdb_id !== fields.tmdb_id);
+    setMovies((list) => [{ ...(prev || {}), ...fields, user_id: uid, updated_at: new Date().toISOString() }, ...others(list)]);
+    const { data, error } = await sb().from("movies").upsert({ ...fields, user_id: uid }, { onConflict: "user_id,tmdb_id" }).select().single();
+    if (error) {
+      setMovies((list) => (prev ? [prev, ...others(list)] : others(list)));
+      const missing = error.code === "42P01" || error.code === "PGRST205" || /movies/i.test(error.message || "");
+      say(missing ? "Os filmes ainda não estão ligados no banco: rode a atualização 4 no Supabase." : "Não consegui salvar. Confira a internet e tente de novo.");
+      throw error;
+    }
+    setMovies((list) => [data, ...others(list)]);
+    return data;
+  }, [say]);
+
+  const removeMovie = useCallback(async (tmdbId) => {
+    const { error } = await sb().from("movies").delete().eq("tmdb_id", tmdbId);
+    if (error) { say("Não consegui remover agora."); return false; }
+    setMovies((list) => (list || []).filter((m) => m.tmdb_id !== tmdbId));
+    return true;
+  }, [say]);
+
+  const byMovie = useMemo(() => new Map((movies || []).map((m) => [m.tmdb_id, m])), [movies]);
   const byTmdb = useMemo(() => new Map((shows || []).map((s) => [s.tmdb_id, s])), [shows]);
   const posters = useMemo(() => (shows || []).filter((s) => s.poster_path).map((s) => img(s.poster_path, "w185")), [shows]);
 
@@ -246,7 +284,7 @@ export default function Shell({ children }) {
     );
   }
 
-  const value = { session, shows, byTmdb, reload, saveShow, removeShow, say, posters, eps, reloadEps, epsChanged, swipes, reloadSwipes, profile, saveProfile, patches };
+  const value = { movies, byMovie, saveMovie, removeMovie, reloadMovies, moviesMissing, session, shows, byTmdb, reload, saveShow, removeShow, say, posters, eps, reloadEps, epsChanged, swipes, reloadSwipes, profile, saveProfile, patches };
 
   return (
     <Ctx.Provider value={value}>

@@ -1,12 +1,9 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDomi } from "@/components/Shell";
-import Wordmark from "@/components/Wordmark";
-import { img } from "@/lib/tmdb";
 import { sb } from "@/lib/supabase";
-import { MONTHS, WEEKDAYS } from "@/lib/constants";
-
-const SLIDE_MS = 6000;
+import { MONTHS } from "@/lib/constants";
+import { W, H, storyData, storyImages, loadImages, buildScenes, drawAt, totalDuration, recordVideo, summaryImage, videoMime } from "@/lib/story";
 
 function monthsBack(n) {
   const out = [];
@@ -19,135 +16,163 @@ function monthsBack(n) {
   return out;
 }
 
-function buildSlides(eps, shows, finished, label) {
-  if (!eps.length && !finished.length) return null;
-  const byId = new Map(shows.map((s) => [s.tmdb_id, s]));
-  const minutes = eps.reduce((a, e) => a + (e.runtime || 0), 0);
+/** Toca as cenas no canvas: toque na direita avança, na esquerda volta, segurar pausa. */
+function StoryPlayer({ scenes, paused = false }) {
+  const canvas = useRef(null);
+  const bars = useRef([]);
+  const T = useRef(0);
+  const playing = useRef(true);
+  const held = useRef(false);
+  const [ended, setEnded] = useState(false);
+  const endedRef = useRef(false);
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  const starts = useMemo(() => { let a = 0; return scenes.map((s) => { const v = a; a += s.dur; return v; }); }, [scenes]);
+  const total = useMemo(() => totalDuration(scenes), [scenes]);
 
-  const perShow = new Map();
-  eps.forEach((e) => perShow.set(e.tmdb_show_id, (perShow.get(e.tmdb_show_id) || 0) + 1));
-  const ranking = [...perShow.entries()].sort((a, b) => b[1] - a[1]).map(([id, n]) => ({ show: byId.get(id), n })).filter((r) => r.show);
+  useEffect(() => {
+    const cv = canvas.current;
+    const ctx = cv.getContext("2d");
+    const fit = () => {
+      const r = cv.getBoundingClientRect();
+      const px = Math.min(W, Math.round(r.width * Math.min(2, window.devicePixelRatio || 1)));
+      if (cv.width !== px) { cv.width = px; cv.height = Math.round(px * (H / W)); }
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(cv);
+    let raf = 0, last = performance.now();
+    const loop = (now) => {
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      if (playing.current && !held.current && !pausedRef.current && !document.hidden) T.current = Math.min(total, T.current + dt);
+      ctx.setTransform(cv.width / W, 0, 0, cv.width / W, 0, 0);
+      const i = drawAt(ctx, scenes, T.current);
+      bars.current.forEach((b, k) => {
+        if (!b) return;
+        const p = k < i ? 1 : k > i ? 0 : (T.current - starts[k]) / scenes[k].dur;
+        b.style.transform = `scaleX(${Math.max(0, Math.min(1, p))})`;
+      });
+      const isEnd = T.current >= total;
+      if (isEnd !== endedRef.current) { endedRef.current = isEnd; setEnded(isEnd); }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+  }, [scenes]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const genres = new Map();
-  ranking.forEach(({ show, n }) => (show.genres || []).forEach((g) => genres.set(g, (genres.get(g) || 0) + n)));
-  const topGenre = [...genres.entries()].sort((a, b) => b[1] - a[1])[0];
+  const current = () => { let i = 0; for (let k = 0; k < starts.length; k++) if (T.current >= starts[k]) i = k; return i; };
+  const jump = (dir) => {
+    const i = current();
+    const t = T.current - starts[i];
+    const to = dir > 0 ? Math.min(scenes.length - 1, i + 1) : t > 1 ? i : Math.max(0, i - 1);
+    if (dir > 0 && i === scenes.length - 1) { T.current = total; return; }
+    T.current = starts[to];
+    playing.current = true;
+  };
 
-  const perWeekday = Array(7).fill(0);
-  const perDay = new Map();
-  eps.forEach((e) => {
-    const d = new Date(e.watched_at);
-    perWeekday[d.getDay()]++;
-    const key = d.toLocaleDateString("pt-BR");
-    perDay.set(key, (perDay.get(key) || 0) + 1);
-  });
-  const bestWeekday = perWeekday.indexOf(Math.max(...perWeekday));
-  const bigDay = [...perDay.entries()].sort((a, b) => b[1] - a[1])[0];
+  const press = useRef({ t: 0, x: 0 });
+  const down = (e) => { press.current = { t: performance.now(), x: e.clientX }; held.current = true; };
+  const up = (e) => {
+    held.current = false;
+    if (performance.now() - press.current.t > 250) return; // foi uma pausa segurando
+    const r = e.currentTarget.getBoundingClientRect();
+    jump(e.clientX - r.left < r.width * 0.33 ? -1 : 1);
+  };
+  const key = (e) => {
+    if (e.key === "ArrowRight") jump(1);
+    if (e.key === "ArrowLeft") jump(-1);
+    if (e.key === " ") { e.preventDefault(); playing.current = !playing.current; }
+  };
+  const replay = () => { T.current = 0; playing.current = true; };
 
-  const slides = [{ k: "cover" }];
-  if (eps.length) slides.push({ k: "numbers", eps: eps.length, hours: Math.round(minutes / 60), minutes });
-  if (ranking[0]) slides.push({ k: "top", ...ranking[0], rest: ranking.slice(1, 5) });
-  if (topGenre) slides.push({ k: "genre", genre: topGenre[0], n: topGenre[1] });
-  if (eps.length) slides.push({ k: "days", weekday: WEEKDAYS[bestWeekday], bigDay });
-  if (finished.length) slides.push({ k: "finished", list: finished });
-  const ship = ranking.find((r) => r.show.ship)?.show;
-  if (ship) slides.push({ k: "ship", show: ship });
-  slides.push({ k: "end", eps: eps.length, shows: ranking.length, finished: finished.length, hours: Math.round(minutes / 60), top: ranking[0]?.show, genre: topGenre?.[0] });
-  return slides.map((s) => ({ ...s, label }));
-}
-
-function Slide({ s }) {
-  switch (s.k) {
-    case "cover":
-      return (<div className="sl sl-cover"><Wordmark animated className="sl-logo" /><p className="eyebrow">sua retrospectiva de</p><h2>{s.label}</h2><p className="muted">toque para continuar</p></div>);
-    case "numbers":
-      return (<div className="sl sl-numbers"><p className="eyebrow">nesse mês você assistiu</p><p className="mega">{s.eps}</p><p className="big">episódios</p><p className="sub">dá <b>{s.hours}h</b> de tela. {s.hours >= 24 ? "Mais de um dia inteiro sem piscar." : s.hours >= 10 ? "Um bom punhado de maratonas." : "No ritmo certinho."}</p></div>);
-    case "top":
-      return (
-        <div className="sl sl-top">
-          <div className="sl-glow" style={{ backgroundImage: `url(${img(s.show.poster_path, "w185")})` }} />
-          <p className="eyebrow">a série do mês</p>
-          {s.show.poster_path && <img className="sl-poster" src={img(s.show.poster_path, "w500")} alt="" />}
-          <h2>{s.show.title}</h2>
-          <p className="sub">{s.n} episódios só dela</p>
-          {s.rest.length > 0 && <ol className="sl-rank">{s.rest.map((r, i) => <li key={r.show.tmdb_id}><b>{i + 2}</b>{r.show.title}<span>{r.n} eps</span></li>)}</ol>}
-        </div>
-      );
-    case "genre":
-      return (<div className="sl sl-genre"><p className="eyebrow">seu gênero do mês</p><h2 className="mega-word">{s.genre}</h2><p className="sub">{s.n} episódios nessa vibe</p></div>);
-    case "days":
-      return (<div className="sl sl-days"><p className="eyebrow">dia preferido de maratona</p><h2 className="mega-word">{s.weekday}</h2>{s.bigDay && <p className="sub">e em <b>{s.bigDay[0]}</b> você viu <b>{s.bigDay[1]}</b> episódios num dia só.</p>}</div>);
-    case "finished":
-      return (<div className="sl sl-fin"><p className="eyebrow">você terminou</p><p className="mega">{s.list.length}</p><p className="big">{s.list.length > 1 ? "séries" : "série"}</p><div className="sl-strip">{s.list.slice(0, 6).map((x) => x.poster_path ? <img key={x.tmdb_id} src={img(x.poster_path, "w185")} alt={x.title} /> : null)}</div></div>);
-    case "ship":
-      return (<div className="sl sl-ship"><p className="eyebrow">o shipp do mês</p><h2 className="mega-word">{s.show.ship}</h2><p className="sub">direto de {s.show.title}</p></div>);
-    case "end":
-      return (
-        <div className="sl sl-end">
-          <p className="eyebrow">{s.label} em uma tela</p>
-          <div className="sl-card">
-            <Wordmark className="sl-card-logo" />
-            <dl>
-              <div><dt>episódios</dt><dd>{s.eps}</dd></div>
-              <div><dt>horas</dt><dd>{s.hours}</dd></div>
-              <div><dt>séries</dt><dd>{s.shows}</dd></div>
-              <div><dt>finalizadas</dt><dd>{s.finished}</dd></div>
-            </dl>
-            {s.top && <p>série do mês: <b>{s.top.title}</b></p>}
-            {s.genre && <p>gênero: <b>{s.genre}</b></p>}
-          </div>
-          <p className="muted">até o mês que vem 📺</p>
-        </div>
-      );
-    default:
-      return null;
-  }
+  return (
+    <div className="story2" tabIndex={0} onKeyDown={key} aria-label="Retrospectiva. Toque na direita para avançar, na esquerda para voltar, segure para pausar.">
+      <canvas ref={canvas} className="story2-cv" />
+      <div className="story2-bars" aria-hidden="true">
+        {scenes.map((s, k) => <span key={s.k}><i ref={(el) => (bars.current[k] = el)} /></span>)}
+      </div>
+      <div className="story2-tap" onPointerDown={down} onPointerUp={up} onPointerCancel={() => (held.current = false)} onPointerLeave={() => (held.current = false)} onContextMenu={(e) => e.preventDefault()} />
+      {ended && <button type="button" className="story2-replay" onClick={replay}>Ver de novo</button>}
+    </div>
+  );
 }
 
 export default function Retro() {
-  const { shows } = useDomi();
+  const { shows, movies, profile, say } = useDomi();
   const options = useMemo(() => monthsBack(12), []);
-  const [pick, setPick] = useState(() => {
-    const d = new Date();
-    return d.getDate() <= 7 ? 1 : 0; // na primeira semana, mostra o mês que acabou
-  });
-  const [data, setData] = useState(null);
-  const [i, setI] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const timer = useRef(null);
+  const [pick, setPick] = useState(() => (new Date().getDate() <= 7 ? 1 : 0)); // na primeira semana, mostra o mês que acabou
+  const [eps, setEps] = useState(null);
+  const [assets, setAssets] = useState(null);
+  const [rec, setRec] = useState(null); // { p } enquanto grava
+  const [file, setFile] = useState(null);
+  const abort = useRef(null);
 
   const { y, m } = options[pick];
   const label = `${MONTHS[m]} de ${y}`;
 
   useEffect(() => {
-    setData(null);
+    setEps(null); setAssets(null); setFile(null);
     const from = new Date(y, m, 1).toISOString();
     const to = new Date(y, m + 1, 1).toISOString();
     sb().from("episodes_watched").select("tmdb_show_id,runtime,watched_at").gte("watched_at", from).lt("watched_at", to).range(0, 9999)
-      .then(({ data: eps }) => setData(eps || []));
+      .then(({ data }) => setEps(data || []));
   }, [y, m]);
 
-  const slides = useMemo(() => {
-    if (!data || !shows) return undefined;
+  const S = useMemo(() => {
+    if (!eps || !shows || !movies) return undefined;
+    const from = new Date(y, m, 1).getTime(), to = new Date(y, m + 1, 1).getTime();
     const first = `${y}-${String(m + 1).padStart(2, "0")}-01`;
     const last = new Date(y, m + 1, 0).toISOString().slice(0, 10);
     const finished = shows.filter((s) => s.finished_at && s.finished_at >= first && s.finished_at <= last);
-    return buildSlides(data, shows, finished, label);
-  }, [data, shows, y, m, label]);
+    const monthMovies = movies.filter((mv) => mv.status === "visto" && mv.watched_at && Date.parse(mv.watched_at) >= from && Date.parse(mv.watched_at) < to);
+    if (!eps.length && !finished.length && !monthMovies.length) return null;
+    return storyData({ eps, shows, movies: monthMovies, finished, label, name: profile?.name });
+  }, [eps, shows, movies, y, m, label, profile?.name]);
 
   useEffect(() => {
-    clearTimeout(timer.current);
-    if (!playing || !slides) return;
-    timer.current = setTimeout(() => {
-      if (i < slides.length - 1) setI(i + 1);
-      else setPlaying(false);
-    }, SLIDE_MS);
-    return () => clearTimeout(timer.current);
-  }, [i, playing, slides]);
+    if (!S) return;
+    let alive = true;
+    const fontsReady = document.fonts ? Promise.all([document.fonts.load(`800 100px Poppins`), document.fonts.load(`700 60px Poppins`), document.fonts.load(`500 40px Poppins`)]).catch(() => {}) : Promise.resolve();
+    Promise.all([loadImages(storyImages(S)), fontsReady]).then(([map]) => { if (alive) setAssets(map); });
+    return () => { alive = false; };
+  }, [S]);
 
-  const go = (dir) => {
-    if (!slides) return;
-    setPlaying(true);
-    setI((v) => Math.max(0, Math.min(slides.length - 1, v + dir)));
+  const scenes = useMemo(() => (S && assets ? buildScenes(S, assets) : null), [S, assets]);
+  const slug = `domi-tv-${MONTHS[m]}-${y}`;
+
+  const deliver = async (blob, name) => {
+    const f = new File([blob], name, { type: blob.type });
+    if (navigator.canShare?.({ files: [f] })) {
+      try { await navigator.share({ files: [f], title: `Retrospectiva de ${label}` }); return; } catch (e) { if (e?.name === "AbortError") return; }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+
+  const makeVideo = async () => {
+    if (!scenes || rec) return;
+    if (!videoMime()) return say("Esse navegador não grava vídeo. Tente no Chrome ou no Safari atualizado.");
+    abort.current = new AbortController();
+    setRec({ p: 0 });
+    try {
+      const blob = await recordVideo(scenes, (p) => setRec({ p }), abort.current.signal);
+      const ext = blob.type.includes("mp4") ? "mp4" : "webm";
+      setFile({ blob, name: `${slug}.${ext}` });
+    } catch (e) {
+      if (e?.message !== "cancelado") say("Não consegui gravar o vídeo.");
+    } finally {
+      setRec(null);
+    }
+  };
+
+  const makeImage = async () => {
+    if (!scenes) return;
+    const blob = await summaryImage(scenes);
+    if (blob) deliver(blob, `${slug}.png`);
   };
 
   return (
@@ -156,30 +181,44 @@ export default function Retro() {
         <h1 className="h-display">Retrospectiva</h1>
         <div className="chips scroll" role="group" aria-label="Escolher mês">
           {options.map((o, idx) => (
-            <button key={idx} type="button" className="chip" aria-pressed={pick === idx} onClick={() => { setPick(idx); setI(0); setPlaying(false); }}>
+            <button key={idx} type="button" className="chip" aria-pressed={pick === idx} disabled={!!rec} onClick={() => setPick(idx)}>
               {MONTHS[o.m].slice(0, 3)} {String(o.y).slice(2)}
             </button>
           ))}
         </div>
       </div>
 
-      {slides === undefined && <div className="loading">rebobinando a fita…</div>}
-      {slides === null && (
-        <div className="empty"><p className="hand">nada gravado em {label}</p><p>Marque episódios nas séries e a retrospectiva desse mês aparece aqui.</p></div>
+      {S === null && (
+        <div className="empty"><p className="hand">nada gravado em {label}</p><p>Marque episódios e filmes e a retrospectiva desse mês aparece aqui.</p></div>
       )}
-      {slides && (
-        <div className={`story s-${slides[i].k}`}>
-          <div className="story-bars">
-            {slides.map((_, idx) => (
-              <span key={idx} className={idx < i ? "done" : idx === i ? (playing ? "run" : "cur") : ""}>
-                <i style={idx === i && playing ? { animationDuration: `${SLIDE_MS}ms` } : undefined} key={`${idx}-${i}-${playing}`} />
-              </span>
-            ))}
+      {S !== null && !scenes && (
+        <div className="story2 story2-loading" role="status"><div className="qz-reel" aria-hidden="true"><i /><i /><i /></div><p>rebobinando a fita…</p></div>
+      )}
+      {scenes && (
+        <>
+          <StoryPlayer key={`${y}-${m}`} scenes={scenes} paused={!!rec} />
+          <div className="retro-actions">
+            {file ? (
+              <>
+                <button type="button" className="btn btn-primary" onClick={() => deliver(file.blob, file.name)}>Compartilhar vídeo</button>
+                <button type="button" className="btn btn-ghost" onClick={() => setFile(null)}>Gravar de novo</button>
+              </>
+            ) : rec ? (
+              <div className="rec-box" role="status">
+                <span className="rec-dot" aria-hidden="true" />
+                <span>gravando… {Math.round(rec.p * 100)}%</span>
+                <span className="rec-bar"><i style={{ transform: `scaleX(${rec.p})` }} /></span>
+                <button type="button" className="btn btn-ghost" onClick={() => abort.current?.abort()}>Cancelar</button>
+              </div>
+            ) : (
+              <>
+                <button type="button" className="btn btn-primary" onClick={makeVideo}>Salvar vídeo pro story</button>
+                <button type="button" className="btn btn-ghost" onClick={makeImage}>Salvar só o cartão</button>
+              </>
+            )}
           </div>
-          <Slide s={slides[i]} />
-          <button type="button" className="tap left" aria-label="Anterior" onClick={() => go(-1)} />
-          <button type="button" className="tap right" aria-label="Próximo" onClick={() => go(1)} />
-        </div>
+          {rec && <p className="muted retro-note">O vídeo grava em tempo real (uns {Math.round(totalDuration(scenes))} segundos). Deixe essa tela aberta até terminar.</p>}
+        </>
       )}
     </section>
   );

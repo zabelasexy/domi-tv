@@ -113,9 +113,9 @@ function airLabel(dateStr) {
   return `${String(d).padStart(2, "0")} ${MONTHS[m - 1].slice(0, 3)}`;
 }
 
-function PosterTile({ id, title, poster, label, mine }) {
+function PosterTile({ id, title, poster, label, mine, movie }) {
   return (
-    <Link href={`/serie/${id}`} className="ptile">
+    <Link href={movie ? `/filme/${id}` : `/serie/${id}`} className="ptile">
       <div className="ptile-img">
         {poster ? <img src={img(poster)} alt="" loading="lazy" /> : <div className="noposter"><span>{title}</span></div>}
         {mine && <span className="ptile-badge">na coleção</span>}
@@ -127,13 +127,14 @@ function PosterTile({ id, title, poster, label, mine }) {
 }
 
 export default function Home() {
-  const { shows, eps, byTmdb, epsChanged, saveShow, say, profile } = useDomi();
+  const { shows, eps, byTmdb, epsChanged, saveShow, say, profile, movies, byMovie } = useDomi();
   const [slides, setSlides] = useState([]);
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
   const [recs, setRecs] = useState(null);
   const [trending, setTrending] = useState(null);
   const [upcoming, setUpcoming] = useState(null);
+  const [trendMovies, setTrendMovies] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const watchedBy = useMemo(() => {
@@ -195,6 +196,7 @@ export default function Home() {
 
   useEffect(() => {
     tmdb("trending/tv/week").then((d) => setTrending((d.results || []).filter((r) => r.poster_path).slice(0, 18))).catch(() => setTrending([]));
+    tmdb("trending/movie/week").then((d) => setTrendMovies((d.results || []).filter((r) => r.poster_path).slice(0, 18))).catch(() => setTrendMovies([]));
   }, []);
 
   // Episódios novos chegando nas séries que ela acompanha (a página Estreias tem a semana completa).
@@ -262,6 +264,8 @@ export default function Home() {
   const fridge = shows.filter((s) => s.status === "geladeira");
   const comfort = shows.filter((s) => s.status === "finalizada" && (s.rating >= 4 || s.favorite)).sort(() => Math.random() - 0.5).slice(0, 16);
   const firstName = (profile.name || "").split(" ")[0];
+  const moviesSeen = (movies || []).filter((m) => m.status === "visto").sort((a, b) => (b.watched_at || "").localeCompare(a.watched_at || "")).slice(0, 18);
+  const moviesWant = (movies || []).filter((m) => m.status === "quero").slice(0, 18);
   const curLabel = curShow?.status === "assistindo" ? (firstName ? `${firstName}, continua de onde parou` : "continua de onde parou") : curShow?.favorite ? "uma das favoritas" : "nota máxima";
 
   return (
@@ -381,6 +385,24 @@ export default function Home() {
         {trending && trending.length > 0 && (
           <Row eyebrow="o que todo mundo está vendo" title="Em alta essa semana">
             {trending.map((r) => <PosterTile key={r.id} id={r.id} title={r.name} poster={r.poster_path} label={GENRES[r.genre_ids?.[0]]} mine={byTmdb.has(r.id)} />)}
+          </Row>
+        )}
+
+        {trendMovies && trendMovies.length > 0 && (
+          <Row eyebrow="pra uma noite só" title="Filmes em alta">
+            {trendMovies.map((r) => <PosterTile key={r.id} movie id={r.id} title={r.title} poster={r.poster_path} label={(r.release_date || "").slice(0, 4)} mine={byMovie.has(r.id)} />)}
+          </Row>
+        )}
+
+        {moviesSeen.length > 0 && (
+          <Row eyebrow="sessão de cinema" title="Filmes que você viu" href="/colecao?tipo=filmes">
+            {moviesSeen.map((m) => <PosterTile key={m.tmdb_id} movie id={m.tmdb_id} title={m.title} poster={m.poster_path} label={m.rating > 0 ? `★ ${String(m.rating).replace(".", ",")}` : m.year} />)}
+          </Row>
+        )}
+
+        {moviesWant.length > 0 && (
+          <Row title="Filmes na fila" href="/colecao?tipo=filmes">
+            {moviesWant.map((m) => <PosterTile key={m.tmdb_id} movie id={m.tmdb_id} title={m.title} poster={m.poster_path} />)}
           </Row>
         )}
 
