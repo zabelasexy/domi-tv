@@ -6,16 +6,28 @@ import { sb } from "@/lib/supabase";
 import { img } from "@/lib/tmdb";
 import Intro from "./Intro";
 import Wordmark from "./Wordmark";
+import { computePatches, ICONS, FILLED } from "@/lib/patches";
 
 const Ctx = createContext(null);
 export const useDomi = () => useContext(Ctx);
 
 const NAV = [
-  { href: "/", label: "Coleção", icon: "M4 5h16v11H4z M8 20h8 M12 16v4" },
+  { href: "/", label: "Início", icon: "M4 11l8-7l8 7v9h-5v-6H9v6H4z" },
   { href: "/buscar", label: "Buscar", icon: "M11 4a7 7 0 1 1 0 14a7 7 0 0 1 0-14z M20 20l-4-4" },
   { href: "/match", label: "Match", icon: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" },
-  { href: "/retro", label: "Retrô", icon: "M5 4h14v16H5z M9 9l6 3l-6 3z" },
+  { href: "/estreias", label: "Estreias", icon: "M4 5h16v15H4z M4 10h16 M9 3v4 M15 3v4" },
+  { href: "/perfil", label: "Perfil", icon: "M12 5a4 4 0 1 1 0 8a4 4 0 0 1 0-8z M4 20c1.5-4 5-5 8-5s6.5 1 8 5" },
 ];
+
+export function PatchBadge({ p, size = 64, locked = false }) {
+  return (
+    <span className={`patch ${locked ? "locked" : ""}`} style={{ width: size, height: size, background: locked ? undefined : p.color }}>
+      {locked && p.secret ? <b>?</b> : (
+        <svg viewBox="0 0 24 24" aria-hidden="true" className={FILLED.has(p.icon) ? "" : "line"} style={{ width: size * 0.42, height: size * 0.42 }}><path d={ICONS[p.icon]} /></svg>
+      )}
+    </span>
+  );
+}
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -50,6 +62,10 @@ export default function Shell({ children }) {
   const [shows, setShows] = useState(null);
   const [intro, setIntro] = useState(false);
   const [toast, setToast] = useState(null);
+  const [eps, setEps] = useState(null);
+  const [swipes, setSwipes] = useState([]);
+  const [profile, setProfile] = useState({});
+  const [unlocked, setUnlocked] = useState(null);
   const path = usePathname();
 
   useEffect(() => {
@@ -65,10 +81,64 @@ export default function Shell({ children }) {
     if (!error) setShows(data);
   }, []);
 
+  const reloadEps = useCallback(async () => {
+    const all = [];
+    for (let from = 0; from < 50000; from += 1000) {
+      const { data, error } = await sb().from("episodes_watched").select("tmdb_show_id,season,episode,runtime,watched_at").order("watched_at", { ascending: false }).range(from, from + 999);
+      if (error) break;
+      all.push(...data);
+      if (data.length < 1000) break;
+    }
+    setEps(all);
+  }, []);
+
+  const reloadSwipes = useCallback(async () => {
+    const { data } = await sb().from("swipes").select("tmdb_id,decision,created_at").range(0, 4999);
+    setSwipes(data || []);
+  }, []);
+
   useEffect(() => {
-    if (session) reload();
-    else if (session === null) setShows(null);
-  }, [session, reload]);
+    if (session) {
+      reload(); reloadEps(); reloadSwipes();
+      setProfile(session.user?.user_metadata || {});
+    } else if (session === null) { setShows(null); setEps(null); }
+  }, [session?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Atualiza a lista local de episódios depois de marcar/desmarcar, sem recarregar tudo. */
+  const epsChanged = useCallback(({ add = [], remove } = {}) => {
+    setEps((list) => {
+      let next = list || [];
+      if (remove) next = next.filter((e) => !(e.tmdb_show_id === remove.tmdbId && (remove.season == null || e.season === remove.season) && (remove.episode == null || e.episode === remove.episode)));
+      if (add.length) {
+        const keys = new Set(next.map((e) => `${e.tmdb_show_id}|${e.season}|${e.episode}`));
+        const fresh = add.filter((e) => !keys.has(`${e.tmdb_show_id}|${e.season}|${e.episode}`)).map((e) => ({ watched_at: new Date().toISOString(), ...e }));
+        next = [...fresh, ...next];
+      }
+      return next;
+    });
+  }, []);
+
+  const saveProfile = useCallback(async (patch) => {
+    const { data, error } = await sb().auth.updateUser({ data: patch });
+    if (error) { return false; }
+    setProfile(data.user?.user_metadata || {});
+    return true;
+  }, []);
+
+  const patches = useMemo(() => (shows && eps ? computePatches({ shows, eps, swipes }) : null), [shows, eps, swipes]);
+
+  // patch novo: compara com os que ela já viu
+  useEffect(() => {
+    if (!patches || !session) return;
+    const done = patches.filter((p) => p.done).map((p) => p.id);
+    const seen = profile.seen_patches;
+    if (!Array.isArray(seen)) { saveProfile({ seen_patches: done }); return; }
+    const fresh = patches.filter((p) => p.done && !seen.includes(p.id));
+    if (fresh.length) {
+      setUnlocked(fresh);
+      saveProfile({ seen_patches: [...new Set([...seen, ...done])] });
+    }
+  }, [patches]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const say = useCallback((text) => {
     setToast(text);
@@ -108,7 +178,7 @@ export default function Shell({ children }) {
     );
   }
 
-  const value = { session, shows, byTmdb, reload, saveShow, removeShow, say, posters };
+  const value = { session, shows, byTmdb, reload, saveShow, removeShow, say, posters, eps, reloadEps, epsChanged, swipes, reloadSwipes, profile, saveProfile, patches };
 
   return (
     <Ctx.Provider value={value}>
@@ -116,31 +186,51 @@ export default function Shell({ children }) {
         <Link href="/" className="brand" aria-label="Domi TV, início">
           <Wordmark className="brand-wm" />
         </Link>
-        <nav className="topnav" aria-label="Seções">
-          {NAV.map((n) => (
-            <Link key={n.href} href={n.href} className={path === n.href ? "on" : ""}>{n.label}</Link>
-          ))}
-        </nav>
-        <details className="menu">
-          <summary aria-label="Menu">•••</summary>
-          <div className="menu-pop">
-            <Link href="/importar">Importar do TV Time</Link>
-            <button type="button" onClick={() => { try { sessionStorage.removeItem("domi-intro"); } catch {} setIntro(true); }}>Ver a abertura</button>
-            <button type="button" onClick={() => sb().auth.signOut()}>Sair</button>
-            <p className="credit">Dados e imagens de séries: TMDB. Este app usa a API do TMDB, mas não é endossado nem certificado por ele.</p>
-          </div>
-        </details>
+        <div className="top-right">
+          <Link href="/colecao" className={`top-link ${path === "/colecao" ? "on" : ""}`}>Coleção</Link>
+          <details className="menu">
+            <summary aria-label="Menu">•••</summary>
+            <div className="menu-pop">
+              <Link href="/colecao">Coleção completa</Link>
+              <Link href="/retro">Retrospectiva</Link>
+              <Link href="/patches">Patches</Link>
+              <Link href="/importar">Importar do TV Time</Link>
+              <button type="button" onClick={() => { try { sessionStorage.removeItem("domi-intro"); } catch {} setIntro(true); }}>Ver a abertura</button>
+              <button type="button" onClick={() => sb().auth.signOut()}>Sair</button>
+              <p className="credit">Dados e imagens de séries: TMDB. Este app usa a API do TMDB, mas não é endossado nem certificado por ele.</p>
+            </div>
+          </details>
+          <Link href="/perfil" className="avatar sm" aria-label="Perfil" style={{ background: profile.color || undefined }}>{(profile.name || "D").trim().charAt(0).toUpperCase()}</Link>
+        </div>
       </header>
       <main className="page">{children}</main>
-      <nav className="tabbar" aria-label="Seções">
-        {NAV.map((n) => (
-          <Link key={n.href} href={n.href} className={path === n.href ? "on" : ""}>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d={n.icon} /></svg>
-            <span>{n.label}</span>
-          </Link>
-        ))}
+      <nav className="pillnav" aria-label="Seções">
+        {NAV.map((n) => {
+          const on = n.href === "/" ? path === "/" : path.startsWith(n.href);
+          return (
+            <Link key={n.href} href={n.href} className={on ? "on" : ""} aria-label={n.label} aria-current={on ? "page" : undefined}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d={n.icon} /></svg>
+              <span>{n.label}</span>
+            </Link>
+          );
+        })}
       </nav>
       <div className={`toast ${toast ? "on" : ""}`} role="status" aria-live="polite">{toast}</div>
+      {unlocked && (
+        <div className="unlock" role="dialog" aria-modal="true" aria-label="Patch novo">
+          <div className="unlock-card">
+            <p className="eyebrow">{unlocked.length > 1 ? `${unlocked.length} patches novos!` : "patch novo!"}</p>
+            <div className="unlock-row">
+              {unlocked.slice(0, 5).map((p) => <PatchBadge key={p.id} p={p} size={unlocked.length > 1 ? 64 : 120} />)}
+            </div>
+            {unlocked.length === 1 ? (<><h2>{unlocked[0].name}</h2><p>{unlocked[0].desc}</p></>) : <h2>Costuradas no seu perfil</h2>}
+            <div className="row-btns center">
+              <Link className="btn btn-primary" href="/patches" onClick={() => setUnlocked(null)}>Ver mural</Link>
+              <button className="btn btn-ghost" type="button" onClick={() => setUnlocked(null)}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </Ctx.Provider>
   );
 }

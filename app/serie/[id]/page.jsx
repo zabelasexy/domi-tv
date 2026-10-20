@@ -6,6 +6,7 @@ import { Stitches } from "@/components/bits";
 import { tmdb, img, showFields } from "@/lib/tmdb";
 import { sb } from "@/lib/supabase";
 import { STATUS, today } from "@/lib/constants";
+import { usePosterColor, accentVars } from "@/lib/color";
 
 const SHOW_STATUS = { "Returning Series": "Em exibição", Ended: "Encerrada", Canceled: "Cancelada", "In Production": "Em produção" };
 
@@ -62,7 +63,7 @@ export default function Serie() {
   const { id } = useParams();
   const tmdbId = Number(id);
   const router = useRouter();
-  const { byTmdb, saveShow, removeShow, say } = useDomi();
+  const { byTmdb, saveShow, removeShow, say, epsChanged } = useDomi();
   const mine = byTmdb.get(tmdbId);
   const [d, setD] = useState(null);
   const [err, setErr] = useState("");
@@ -88,6 +89,7 @@ export default function Serie() {
   }, [mine?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fields = useMemo(() => (d ? showFields(d) : null), [d]);
+  const rgb = usePosterColor(d?.poster_path ? img(d.poster_path, "w92") : null);
   const runtime = fields?.runtime || 45;
   const airedTotal = useMemo(() => (d?.seasons || []).filter((s) => s.season_number > 0).reduce((a, s) => a + (s.episode_count || 0), 0), [d]);
 
@@ -122,11 +124,13 @@ export default function Serie() {
       if (error) return say("Não consegui marcar.");
       const next = [...watched, { ...row, watched_at: new Date().toISOString() }];
       setWatched(next);
+      epsChanged({ add: [row] });
       autoStatus(next.length);
     } else {
       const { error } = await sb().from("episodes_watched").delete().eq("tmdb_show_id", tmdbId).eq("season", e.season_number).eq("episode", e.episode_number);
       if (error) return say("Não consegui desmarcar.");
       setWatched((w) => w.filter((x) => !(x.season === e.season_number && x.episode === e.episode_number)));
+      epsChanged({ remove: { tmdbId, season: e.season_number, episode: e.episode_number } });
     }
   };
 
@@ -138,12 +142,14 @@ export default function Serie() {
       const now = new Date().toISOString();
       const next = [...watched.filter((w) => w.season !== season), ...rows.map((r) => ({ ...r, watched_at: now }))];
       setWatched(next);
+      epsChanged({ add: rows });
       say(`Temporada ${season} marcada`);
       autoStatus(next.length);
     } else {
       const { error } = await sb().from("episodes_watched").delete().eq("tmdb_show_id", tmdbId).eq("season", season);
       if (error) return say("Não consegui desmarcar.");
       setWatched((w) => w.filter((x) => x.season !== season));
+      epsChanged({ remove: { tmdbId, season } });
     }
   };
 
@@ -166,7 +172,8 @@ export default function Serie() {
   const seasons = [...(d.seasons || []).filter((s) => s.season_number > 0), ...(d.seasons || []).filter((s) => s.season_number === 0)];
 
   return (
-    <article className="detail">
+    <article className="detail tinted" style={accentVars(rgb)}>
+      <div className="detail-glow" aria-hidden="true" />
       <div className="hero">
         {d.backdrop_path && <img className="hero-bg" src={img(d.backdrop_path, "w1280")} alt="" />}
         <div className="hero-fade" />
@@ -243,7 +250,7 @@ export default function Serie() {
             <label className="field">Anotações<textarea className="input" rows={5} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} onBlur={saveForm} placeholder="o que ficou comigo…" /></label>
             <button type="button" className="btn btn-danger" onClick={async () => {
               if (!confirmDel) return setConfirmDel(true);
-              if (await removeShow(tmdbId)) { say("Removida da coleção"); router.push("/"); }
+              if (await removeShow(tmdbId)) { epsChanged({ remove: { tmdbId } }); say("Removida da coleção"); router.push("/"); }
             }}>{confirmDel ? "Confirmar: remover e apagar episódios" : "Remover da coleção"}</button>
           </aside>
         )}

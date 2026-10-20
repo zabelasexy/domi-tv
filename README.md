@@ -44,6 +44,14 @@ O app abre em tela cheia, com o ícone do play azul.
 
 ---
 
+## 5. Modo casal (opcional)
+
+1. Crie o seu usuário no Supabase (**Authentication → Users → Add user**), igual ao da Domi.
+2. Abra `supabase/casal.sql`, troque os dois e-mails do final pelos e-mails das duas contas e rode no **SQL Editor**.
+3. Pronto: quando as duas derem ♥ na mesma série no **Match**, aparece o "Deu match!" e a série entra em **Pra ver juntas**.
+
+---
+
 ## Segurança
 
 - Cada linha do banco é amarrada à pessoa logada (Row Level Security). Mesmo com a chave pública, ninguém lê nem altera os dados de outra pessoa.

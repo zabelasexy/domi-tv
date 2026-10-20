@@ -66,7 +66,7 @@ async function readFiles(files) {
 }
 
 export default function Importar() {
-  const { reload } = useDomi();
+  const { reload, reloadEps } = useDomi();
   const [found, setFound] = useState(null);
   const [log, setLog] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -145,7 +145,7 @@ export default function Importar() {
       }
     };
     await Promise.all([worker(), worker(), worker(), worker()]);
-    await reload();
+    await Promise.all([reload(), reloadEps()]);
     setBusy(false);
     setDone({ ok, eps: epsTotal, missing });
   };
