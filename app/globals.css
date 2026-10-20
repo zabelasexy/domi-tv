@@ -81,8 +81,8 @@ textarea.input { resize: vertical; }
 .topnav a { padding: 8px 14px; border-radius: 999px; font-weight: 500; color: var(--muted); }
 .topnav a.on, .topnav a:hover { color: var(--tinta); background: var(--panel); }
 .menu { position: relative; }
-.menu summary { list-style: none; cursor: pointer; padding: 6px 10px; border-radius: 10px; color: var(--muted); font-weight: 800; letter-spacing: 1px; }
-.menu summary::-webkit-details-marker { display: none; }
+.menu-btn { border: 0; background: transparent; cursor: pointer; padding: 8px 10px; border-radius: 10px; color: var(--muted); font-weight: 800; letter-spacing: 1px; }
+.menu-btn[aria-expanded="true"], .menu-btn:hover { color: var(--tinta); background: var(--panel); }
 .menu-pop { position: absolute; right: 0; top: calc(100% + 8px); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 6px; min-width: 210px; display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0, 0, 0, .4); }
 .menu-pop a, .menu-pop button { text-align: left; background: none; border: 0; padding: 10px 12px; border-radius: 10px; font-size: .92rem; }
 .menu-pop a:hover, .menu-pop button:hover { background: var(--deep); }
@@ -678,3 +678,43 @@ body::before { background: var(--night); }
 .ost-player { border: 0; border-radius: 12px; display: block; background: var(--panel); }
 .btn-spotify { align-self: flex-start; background: #1DB954; color: #05070F; }
 .btn-spotify:hover { background: #2BD566; }
+
+/* ===== estrelas (meia nota) ===== */
+.stars { --s: 13px; --star-on: #FFC24B; display: inline-flex; align-items: center; gap: 2px; vertical-align: middle; }
+.stars.lg { --s: 34px; gap: 4px; }
+.star { position: relative; display: inline-block; width: var(--s); height: var(--s); flex: none; }
+.star svg { display: block; width: var(--s); height: var(--s); }
+.star-bg path { fill: var(--line); }
+.star-fill { position: absolute; inset: 0 auto 0 0; overflow: hidden; }
+.star-fill path { fill: var(--star-on); }
+.star-slot { position: relative; display: inline-flex; transition: transform .15s; }
+.stars.edit .star-slot:hover { transform: scale(1.12); }
+.star-hit { position: absolute; top: 0; bottom: 0; width: 50%; border: 0; padding: 0; background: transparent; cursor: pointer; }
+.star-hit.left { left: 0; } .star-hit.right { right: 0; }
+.star-hit:focus-visible { outline: 2px solid var(--stamp); outline-offset: 1px; border-radius: 4px; }
+.stars-n { margin-left: 8px; font-size: .9em; font-weight: 700; color: var(--star-on); font-variant-numeric: tabular-nums; }
+.stars.lg .stars-n { font-size: 1.3rem; min-width: 2.4ch; }
+.stars.sm .stars-n { font-size: .82rem; margin-left: 6px; }
+.bb-rate { display: inline-flex; }
+.bb-rate .stars { --s: 15px; }
+
+/* ===== menu, avatar com foto ===== */
+.menu-pop { animation: menuIn .16s ease-out both; transform-origin: top right; }
+@keyframes menuIn { from { opacity: 0; transform: scale(.96) translateY(-4px); } to { opacity: 1; transform: none; } }
+.avatar { overflow: hidden; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar-link { display: inline-flex; border-radius: 50%; }
+.avatar-up { position: relative; display: inline-block; border-radius: 50%; cursor: pointer; flex: none; }
+.avatar-up.busy { opacity: .6; }
+.avatar-cam { position: absolute; right: 2px; bottom: 2px; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: #3F7BFF; box-shadow: 0 0 0 3px var(--night); }
+.avatar-cam svg { width: 16px; height: 16px; fill: none; stroke: #fff; stroke-width: 2; stroke-linejoin: round; }
+.avatar-up:focus-within .avatar-cam { outline: 2px solid var(--stamp); outline-offset: 2px; }
+.photo-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; text-transform: none; letter-spacing: 0; }
+.avatar.lgav { width: 56px; height: 56px; font-size: 1.4rem; }
+.photo-row .btn { font-size: .88rem; padding: 9px 16px; cursor: pointer; }
+
+/* resposta imediata ao toque */
+a, button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.ptile:active .ptile-img, .ltile:active .ltile-img, .pcard:active .pcard-img, .t10:active .t10-img { transform: scale(.97); transition-duration: .08s; }
+.chip:active, .seg button:active, .ep:active, .check:active { transform: scale(.96); }
+@media (max-width: 420px) { .stars.lg { --s: 28px; gap: 3px; } .rate-row { gap: 10px; } }

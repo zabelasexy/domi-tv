@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useDomi } from "@/components/Shell";
-import { PosterCard, Stitches, Empty } from "@/components/bits";
+import { PosterCard, Empty } from "@/components/bits";
 import { STATUS } from "@/lib/constants";
 import { img } from "@/lib/tmdb";
 import { sb } from "@/lib/supabase";

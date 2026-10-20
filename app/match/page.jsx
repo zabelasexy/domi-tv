@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useDomi } from "@/components/Shell";
+import { useDomi, Avatar } from "@/components/Shell";
 import { Empty } from "@/components/bits";
 import { recs, img, tmdb, showFields } from "@/lib/tmdb";
 import { sb } from "@/lib/supabase";
@@ -127,7 +127,7 @@ export default function Match() {
             <h2 className="match-title">Deu match!</h2>
             <div className="couple-stage">
               <img src={img(celebrate.poster_path, "w342")} alt={`Pôster de ${celebrate.name}`} />
-              <span className="avatar md left" style={{ background: profile.color || undefined }}>{(profile.name || "D").charAt(0).toUpperCase()}</span>
+              <Avatar profile={profile} className="md left" />
               <span className="avatar md right pink">{(partner || "R").charAt(0).toUpperCase()}</span>
               <span className="couple-heart" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" /></svg></span>
             </div>

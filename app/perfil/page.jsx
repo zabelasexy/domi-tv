@@ -1,7 +1,9 @@
 "use client";
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useDomi, PatchBadge } from "@/components/Shell";
+import { useDomi, PatchBadge, Avatar } from "@/components/Shell";
+import { sb } from "@/lib/supabase";
+import { squareJpeg } from "@/lib/photo";
 import { img } from "@/lib/tmdb";
 import { shareCard } from "@/lib/sharecard";
 
@@ -9,7 +11,8 @@ const COLORS = ["#3F7BFF", "#9CC2FF", "#E86A8E", "#FF9A3C", "#7FD3A8", "#C7B8FF"
 const fmt = (n) => n.toLocaleString("pt-BR");
 
 export default function Perfil() {
-  const { shows, eps, profile, saveProfile, patches, say } = useDomi();
+  const { shows, eps, profile, saveProfile, patches, say, session } = useDomi();
+  const [uploading, setUploading] = useState(false);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(null);
   const [sharing, setSharing] = useState(false);
@@ -77,6 +80,34 @@ export default function Perfil() {
   const name = profile.name || "Domi";
   const color = profile.color || COLORS[0];
 
+  const uploadPhoto = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const blob = await squareJpeg(file, 480);
+      const path = `${session.user.id}/avatar-${Date.now()}.jpg`;
+      const up = await sb().storage.from("avatars").upload(path, blob, { contentType: "image/jpeg", cacheControl: "31536000", upsert: true });
+      if (up.error) throw up.error;
+      const { data } = sb().storage.from("avatars").getPublicUrl(path);
+      const old = profile.avatar_path;
+      if (!(await saveProfile({ avatar_url: data.publicUrl, avatar_path: path }))) throw new Error("perfil");
+      if (old) sb().storage.from("avatars").remove([old]);
+      say("Foto atualizada");
+    } catch (e) {
+      const msg = String(e?.message || e);
+      say(/bucket|not found|policy|row-level|security/i.test(msg) ? "As fotos ainda não estão ligadas no banco: rode a atualização 2 no Supabase." : /formato/.test(msg) ? msg : "Não consegui enviar a foto.");
+    }
+    setUploading(false);
+  };
+
+  const removePhoto = async () => {
+    const old = profile.avatar_path;
+    if (await saveProfile({ avatar_url: null, avatar_path: null })) {
+      if (old) sb().storage.from("avatars").remove([old]);
+      say("Foto removida");
+    }
+  };
+
   const startEdit = () => {
     setForm({ name: profile.name || "", bio: profile.bio || "", color, top4: top4.map((s) => s.tmdb_id) });
     setEditing(true);
@@ -108,7 +139,11 @@ export default function Perfil() {
       </div>
 
       <div className="pf-head">
-        <span className="avatar xl" style={{ background: color }}>{name.trim().charAt(0).toUpperCase()}</span>
+        <label className={`avatar-up ${uploading ? "busy" : ""}`} title="Trocar foto">
+          <Avatar profile={{ ...profile, name, color }} className="xl" />
+          <span className="avatar-cam" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z M12 10a3.5 3.5 0 1 1 0 7a3.5 3.5 0 0 1 0-7z" /></svg></span>
+          <input type="file" accept="image/*" className="sr" aria-label="Trocar foto de perfil" disabled={uploading} onChange={(e) => { uploadPhoto(e.target.files?.[0]); e.target.value = ""; }} />
+        </label>
         <div className="pf-id">
           <h1>{name}</h1>
           {profile.bio ? <p>{profile.bio}</p> : <p className="muted">conta um pouquinho de você</p>}
@@ -121,6 +156,16 @@ export default function Perfil() {
 
       {editing && form && (
         <div className="pf-edit">
+          <div className="field">Foto
+            <div className="photo-row">
+              <Avatar profile={{ ...profile, name: form.name || name, color: form.color }} className="lgav" />
+              <label className="btn btn-ghost">
+                {uploading ? "Enviando…" : profile.avatar_url ? "Trocar foto" : "Escolher foto"}
+                <input type="file" accept="image/*" className="sr" disabled={uploading} onChange={(e) => { uploadPhoto(e.target.files?.[0]); e.target.value = ""; }} />
+              </label>
+              {profile.avatar_url && <button type="button" className="btn btn-ghost" onClick={removePhoto}>Remover</button>}
+            </div>
+          </div>
           <label className="field">Nome<input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Dominique" /></label>
           <label className="field">Bio<input className="input" value={form.bio} maxLength={80} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="pinta, costura e maratona" /></label>
           <div className="field">Cor

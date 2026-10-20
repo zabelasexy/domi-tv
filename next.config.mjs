@@ -7,7 +7,7 @@ const csp = [
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data: blob: https://image.tmdb.org",
+  `img-src 'self' data: blob: https://image.tmdb.org ${supabaseUrl}`,
   `connect-src 'self' ${supabaseUrl} ${supabaseWs}`,
   "frame-src https://open.spotify.com",
   "frame-ancestors 'none'",

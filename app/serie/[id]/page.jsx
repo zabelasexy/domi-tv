@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useDomi } from "@/components/Shell";
-import { Stitches } from "@/components/bits";
-import { tmdb, img, showFields } from "@/lib/tmdb";
+import { Stars } from "@/components/bits";
+import { tmdb, img, showFields, SHOW_PARAMS } from "@/lib/tmdb";
 import { sb } from "@/lib/supabase";
 import { STATUS, today } from "@/lib/constants";
 import { usePosterColor, accentVars } from "@/lib/color";
@@ -74,7 +74,7 @@ export default function Serie() {
 
   useEffect(() => {
     setD(null);
-    tmdb(`tv/${tmdbId}`, { append_to_response: "watch/providers" })
+    tmdb(`tv/${tmdbId}`, SHOW_PARAMS)
       .then(async (data) => {
         if (!data.overview) {
           try { data.overview = (await tmdb(`tv/${tmdbId}`, { language: "en-US" })).overview; } catch {}
@@ -96,8 +96,7 @@ export default function Serie() {
 
   const save = async (patch) => {
     if (!fields) return null;
-    const row = await saveShow({ ...fields, ...(mine ? { status: mine.status } : {}), ...patch });
-    return row;
+    try { return await saveShow({ ...fields, ...(mine ? { status: mine.status } : {}), ...patch }); } catch { return null; }
   };
 
   const add = async (status) => {
@@ -118,39 +117,60 @@ export default function Serie() {
     }
   };
 
+  // Marca na tela na hora e salva em seguida; se falhar, desfaz.
   const toggleEp = async (e, on) => {
+    const key = (x) => x.season === e.season_number && x.episode === e.episode_number;
     if (on) {
       const row = { tmdb_show_id: tmdbId, season: e.season_number, episode: e.episode_number, runtime: e.runtime || runtime };
-      const { error } = await sb().from("episodes_watched").upsert(row, { onConflict: "user_id,tmdb_show_id,season,episode", ignoreDuplicates: true });
-      if (error) return say("Não consegui marcar.");
       const next = [...watched, { ...row, watched_at: new Date().toISOString() }];
       setWatched(next);
       epsChanged({ add: [row] });
+      const { error } = await sb().from("episodes_watched").upsert(row, { onConflict: "user_id,tmdb_show_id,season,episode", ignoreDuplicates: true });
+      if (error) {
+        setWatched((w) => w.filter((x) => !key(x)));
+        epsChanged({ remove: { tmdbId, season: e.season_number, episode: e.episode_number } });
+        return say("Não consegui marcar.");
+      }
       autoStatus(next.length);
     } else {
-      const { error } = await sb().from("episodes_watched").delete().eq("tmdb_show_id", tmdbId).eq("season", e.season_number).eq("episode", e.episode_number);
-      if (error) return say("Não consegui desmarcar.");
-      setWatched((w) => w.filter((x) => !(x.season === e.season_number && x.episode === e.episode_number)));
+      const before = watched;
+      setWatched((w) => w.filter((x) => !key(x)));
       epsChanged({ remove: { tmdbId, season: e.season_number, episode: e.episode_number } });
+      const { error } = await sb().from("episodes_watched").delete().eq("tmdb_show_id", tmdbId).eq("season", e.season_number).eq("episode", e.episode_number);
+      if (error) {
+        setWatched(before);
+        epsChanged({ add: before.filter(key).map((x) => ({ ...x, tmdb_show_id: tmdbId })) });
+        say("Não consegui desmarcar.");
+      }
     }
   };
 
   const toggleSeason = async (season, eps, on) => {
+    const before = watched;
     if (on) {
       const rows = eps.map((e) => ({ tmdb_show_id: tmdbId, season, episode: e.episode_number, runtime: e.runtime || runtime }));
-      const { error } = await sb().from("episodes_watched").upsert(rows, { onConflict: "user_id,tmdb_show_id,season,episode", ignoreDuplicates: true });
-      if (error) return say("Não consegui marcar a temporada.");
       const now = new Date().toISOString();
       const next = [...watched.filter((w) => w.season !== season), ...rows.map((r) => ({ ...r, watched_at: now }))];
       setWatched(next);
       epsChanged({ add: rows });
+      const { error } = await sb().from("episodes_watched").upsert(rows, { onConflict: "user_id,tmdb_show_id,season,episode", ignoreDuplicates: true });
+      if (error) {
+        setWatched(before);
+        epsChanged({ remove: { tmdbId, season } });
+        epsChanged({ add: before.filter((w) => w.season === season).map((x) => ({ ...x, tmdb_show_id: tmdbId })) });
+        return say("Não consegui marcar a temporada.");
+      }
       say(`Temporada ${season} marcada`);
       autoStatus(next.length);
     } else {
-      const { error } = await sb().from("episodes_watched").delete().eq("tmdb_show_id", tmdbId).eq("season", season);
-      if (error) return say("Não consegui desmarcar.");
       setWatched((w) => w.filter((x) => x.season !== season));
       epsChanged({ remove: { tmdbId, season } });
+      const { error } = await sb().from("episodes_watched").delete().eq("tmdb_show_id", tmdbId).eq("season", season);
+      if (error) {
+        setWatched(before);
+        epsChanged({ add: before.filter((w) => w.season === season).map((x) => ({ ...x, tmdb_show_id: tmdbId })) });
+        say("Não consegui desmarcar.");
+      }
     }
   };
 
@@ -167,7 +187,21 @@ export default function Serie() {
   };
 
   if (err) return <p className="err">{err}</p>;
-  if (!d) return <div className="loading">sintonizando…</div>;
+  if (!d) {
+    return (
+      <article className="detail">
+        <div className="hero">
+          {mine?.backdrop_path && <img className="hero-bg" src={img(mine.backdrop_path, "w1280")} alt="" />}
+          <div className="hero-fade" />
+          <div className="hero-body">
+            <div className="hero-poster">{mine?.poster_path ? <img src={img(mine.poster_path, "w500")} alt="" /> : <div className="sk" style={{ height: "100%" }} />}</div>
+            <div className="hero-txt">{mine ? <h1>{mine.title}</h1> : <div className="sk" style={{ height: 48, width: 220 }} />}</div>
+          </div>
+        </div>
+        <div className="sk sk-row" />
+      </article>
+    );
+  }
 
   const providers = d["watch/providers"]?.results?.BR?.flatrate || [];
   const seasons = [...(d.seasons || []).filter((s) => s.season_number > 0), ...(d.seasons || []).filter((s) => s.season_number === 0)];
@@ -210,7 +244,7 @@ export default function Serie() {
               </div>
               <div className="rate-row">
                 <span className="eyebrow">sua nota</span>
-                <Stitches size="lg" value={mine.rating} onChange={(v) => save({ rating: v })} />
+                <Stars size="lg" value={mine.rating} onChange={(v) => save({ rating: v })} />
                 <button type="button" className={`fav ${mine.favorite ? "on" : ""}`} onClick={() => save({ favorite: !mine.favorite })} aria-pressed={mine.favorite} aria-label="Favorita">
                   <svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" /></svg>
                 </button>

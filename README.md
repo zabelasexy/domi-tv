@@ -44,6 +44,10 @@ O app abre em tela cheia, com o ícone do play azul.
 
 ---
 
+## Atualização 2 (meia estrela e foto de perfil)
+
+No Supabase → **SQL Editor → New query**, cole o conteúdo de `supabase/atualizacao-2.sql` e clique em **Run**.
+
 ## 5. Modo casal (opcional)
 
 1. Crie o seu usuário no Supabase (**Authentication → Users → Add user**), igual ao da Domi.

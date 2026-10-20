@@ -1,9 +1,9 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { sb } from "@/lib/supabase";
-import { img } from "@/lib/tmdb";
+import { img, prefetchShow } from "@/lib/tmdb";
 import Intro from "./Intro";
 import Wordmark from "./Wordmark";
 import { computePatches, ICONS, FILLED } from "@/lib/patches";
@@ -54,6 +54,38 @@ function Login() {
         {msg && <p className="login-msg">{msg}</p>}
       </form>
     </Intro>
+  );
+}
+
+/** Foto de perfil, ou a inicial na cor escolhida. */
+export function Avatar({ profile = {}, className = "", fallback = "D", style }) {
+  const letter = (profile.name || fallback).trim().charAt(0).toUpperCase();
+  return (
+    <span className={`avatar ${className}`} style={{ background: profile.color || undefined, ...style }}>
+      {profile.avatar_url ? <img src={profile.avatar_url} alt="" /> : letter}
+    </span>
+  );
+}
+
+/** Menu dos três pontinhos: fecha sozinho ao escolher, ao tocar fora, ao trocar de tela ou no Esc. */
+function Menu({ children }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const path = usePathname();
+  useEffect(() => { setOpen(false); }, [path]);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  return (
+    <div className="menu" ref={ref}>
+      <button type="button" className="menu-btn" aria-label="Menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>•••</button>
+      {open && <div className="menu-pop" onClick={(e) => { if (e.target.closest("a,button")) setOpen(false); }}>{children}</div>}
+    </div>
   );
 }
 
@@ -154,14 +186,41 @@ export default function Shell({ children }) {
     say.t = setTimeout(() => setToast(null), 2600);
   }, []);
 
-  /** Cria ou atualiza uma série da coleção e devolve a linha salva. */
+  const showsRef = useRef(null);
+  showsRef.current = shows;
+  const uidRef = useRef(null);
+  uidRef.current = session?.user?.id || null;
+
+  /** Cria ou atualiza uma série: muda na tela na hora e salva em seguida; se falhar, desfaz. */
   const saveShow = useCallback(async (fields) => {
-    const uid = (await sb().auth.getUser()).data.user?.id;
+    const uid = uidRef.current || (await sb().auth.getUser()).data.user?.id;
+    const prev = (showsRef.current || []).find((s) => s.tmdb_id === fields.tmdb_id);
+    const others = (list) => (list || []).filter((s) => s.tmdb_id !== fields.tmdb_id);
+    setShows((list) => [{ ...(prev || {}), ...fields, user_id: uid, updated_at: new Date().toISOString() }, ...others(list)]);
     const { data, error } = await sb().from("shows").upsert({ ...fields, user_id: uid }, { onConflict: "user_id,tmdb_id" }).select().single();
-    if (error) { say("Não consegui salvar. Confira a internet e tente de novo."); throw error; }
-    setShows((list) => [data, ...(list || []).filter((s) => s.tmdb_id !== data.tmdb_id)]);
+    if (error) {
+      setShows((list) => (prev ? [prev, ...others(list)] : others(list)));
+      const half = error.code === "22P02" || /smallint|integer/i.test(error.message || "");
+      say(half ? "Meia estrela ainda não está ligada no banco: rode a atualização 2 no Supabase." : "Não consegui salvar. Confira a internet e tente de novo.");
+      throw error;
+    }
+    setShows((list) => [data, ...others(list)]);
     return data;
   }, [say]);
+
+  // Prefetch: ao passar o mouse ou encostar o dedo num pôster, a série já começa a carregar.
+  useEffect(() => {
+    const seen = new Set();
+    const go = (e) => {
+      const a = e.target.closest?.('a[href^="/serie/"]');
+      if (!a) return;
+      const id = Number(a.getAttribute("href").split("/")[2]);
+      if (id && !seen.has(id)) { seen.add(id); prefetchShow(id); }
+    };
+    document.addEventListener("pointerover", go, { passive: true });
+    document.addEventListener("touchstart", go, { passive: true });
+    return () => { document.removeEventListener("pointerover", go); document.removeEventListener("touchstart", go); };
+  }, []);
 
   const removeShow = useCallback(async (tmdbId) => {
     await sb().from("episodes_watched").delete().eq("tmdb_show_id", tmdbId);
@@ -196,19 +255,16 @@ export default function Shell({ children }) {
         </Link>
         <div className="top-right">
           <Link href="/colecao" className={`top-link ${path === "/colecao" ? "on" : ""}`}>Coleção</Link>
-          <details className="menu">
-            <summary aria-label="Menu">•••</summary>
-            <div className="menu-pop">
-              <Link href="/colecao">Coleção completa</Link>
-              <Link href="/retro">Retrospectiva</Link>
-              <Link href="/patches">Patches</Link>
-              <Link href="/importar">Importar do TV Time</Link>
-              <button type="button" onClick={() => { try { sessionStorage.removeItem("domi-intro"); } catch {} setIntro(true); }}>Ver a abertura</button>
-              <button type="button" onClick={() => sb().auth.signOut()}>Sair</button>
-              <p className="credit">Dados e imagens de séries: TMDB. Este app usa a API do TMDB, mas não é endossado nem certificado por ele.</p>
-            </div>
-          </details>
-          <Link href="/perfil" className="avatar sm" aria-label="Perfil" style={{ background: profile.color || undefined }}>{(profile.name || "D").trim().charAt(0).toUpperCase()}</Link>
+          <Menu>
+            <Link href="/colecao">Coleção completa</Link>
+            <Link href="/retro">Retrospectiva</Link>
+            <Link href="/patches">Patches</Link>
+            <Link href="/importar">Importar do TV Time</Link>
+            <button type="button" onClick={() => { try { sessionStorage.removeItem("domi-intro"); } catch {} setIntro(true); }}>Ver a abertura</button>
+            <button type="button" onClick={() => sb().auth.signOut()}>Sair</button>
+            <p className="credit">Dados e imagens de séries: TMDB. Este app usa a API do TMDB, mas não é endossado nem certificado por ele.</p>
+          </Menu>
+          <Link href="/perfil" className="avatar-link" aria-label="Perfil"><Avatar profile={profile} className="sm" /></Link>
         </div>
       </header>
       <main className="page">{children}</main>
@@ -225,7 +281,7 @@ export default function Shell({ children }) {
       </nav>
       <div className={`toast ${toast ? "on" : ""}`} role="status" aria-live="polite">{toast}</div>
       {unlocked && (
-        <div className="unlock" role="dialog" aria-modal="true" aria-label="Patch novo">
+        <div className="unlock" role="dialog" aria-modal="true" aria-label="Patch novo" onClick={(e) => { if (e.target === e.currentTarget) setUnlocked(null); }}>
           <div className="unlock-card">
             <p className="eyebrow">{unlocked.length > 1 ? `${unlocked.length} patches novos!` : "patch novo!"}</p>
             <div className="unlock-row">

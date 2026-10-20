@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useDomi } from "@/components/Shell";
-import { Empty } from "@/components/bits";
+import { Empty, Stars } from "@/components/bits";
 import { tmdb, img } from "@/lib/tmdb";
 import { sb } from "@/lib/supabase";
 import { MONTHS, GENRES } from "@/lib/constants";
@@ -195,7 +195,7 @@ export default function Home() {
               {next && <span className="mono-stamp">T{next.season} · E{next.episode}</span>}
               {curShow.year && <span>{curShow.year}</span>}
               {(curShow.genres || []).slice(0, 2).map((g) => <span key={g}>{g}</span>)}
-              {curShow.rating > 0 && <span className="bb-rate" aria-label={`nota ${curShow.rating}`}>{"✕".repeat(curShow.rating)}</span>}
+              {curShow.rating > 0 && <span className="bb-rate"><Stars value={curShow.rating} showNumber /></span>}
             </p>
             {cur.d?.overview && <p className="bb-over">{cur.d.overview}</p>}
             {next && total > 0 && <div className="bb-bar"><span style={{ width: `${pct}%` }} /></div>}
